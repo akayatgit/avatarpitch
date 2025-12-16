@@ -48,8 +48,8 @@ export async function generateScenes(
   const { productName, productLink, offer, features, targetAudience, platform } = input;
 
   const sceneCount = templateConfig.output.sceneCount;
-  const minSeconds = templateConfig.output.minSceneSeconds;
-  const maxSeconds = templateConfig.output.maxSceneSeconds;
+  const minSeconds = templateConfig.output.minSceneSeconds ?? 3;
+  const maxSeconds = templateConfig.output.maxSceneSeconds ?? 7;
 
   const featuresText = features && features.length > 0 ? features.join(', ') : 'Not specified';
   const audienceText = targetAudience || 'General audience';
