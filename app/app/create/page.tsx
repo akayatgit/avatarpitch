@@ -21,7 +21,7 @@ export default async function CreateProjectPage() {
     }
 
     // Filter workspaces that have templates assigned
-    const workspacesWithTemplates = (workspaces || []).filter((w) => w.template_id);
+    const workspacesWithTemplates = (workspaces || []).filter((w: any) => w.template_id);
 
     // Fetch template names for each workspace
     const validWorkspaces = await Promise.all(
