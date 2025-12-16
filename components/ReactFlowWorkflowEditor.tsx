@@ -165,7 +165,6 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
       return {
         agents: initialWorkflowData.agents,
         executionOrder: initialWorkflowData.executionOrder || 'sequential',
-        sharedState: initialWorkflowData.sharedState,
       };
     }
     
@@ -193,7 +192,6 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
       setWorkflow({
         agents: workflowData.agents,
         executionOrder: workflowData.executionOrder || 'sequential',
-        sharedState: workflowData.sharedState,
       });
     }
   }, [initialConfig]);
