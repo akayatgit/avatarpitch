@@ -71,7 +71,7 @@ export default function WorkspaceList({
 
   return (
     <div className="space-y-3">
-      {workspaces.map((workspace) => {
+      {workspaces.map((workspace: any) => {
         const currentTemplate = workspace.templates && Array.isArray(workspace.templates) && workspace.templates.length > 0
           ? workspace.templates[0]
           : null;
@@ -109,7 +109,7 @@ export default function WorkspaceList({
                   className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3 min-h-[44px] touch-manipulation"
                 >
                   <option value="">Select template...</option>
-                  {templates.map((template) => (
+                  {templates.map((template: any) => (
                     <option key={template.id} value={template.id}>
                       {template.name}
                     </option>

@@ -332,8 +332,8 @@ export async function generateProject(formData: FormData) {
   const featuresArray = rawData.features
     ? rawData.features
         .split(',')
-        .map((f) => f.trim())
-        .filter((f) => f.length > 0)
+        .map((f: string) => f.trim())
+        .filter((f: string) => f.length > 0)
         .slice(0, 5)
     : undefined;
 

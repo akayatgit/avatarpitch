@@ -67,22 +67,22 @@ export default function WorkflowEditor({ templateId, initialConfig }: WorkflowEd
     setWorkflow({
       ...workflow,
       agents: workflow.agents
-        .filter((a) => a.id !== agentId)
-        .map((a, index) => ({ ...a, order: index + 1 })),
+        .filter((a: any) => a.id !== agentId)
+        .map((a: any, index: number) => ({ ...a, order: index + 1 })),
     });
   };
 
   const updateAgent = (agentId: string, updates: Partial<AgentDefinition>) => {
     setWorkflow({
       ...workflow,
-      agents: workflow.agents.map((a) => (a.id === agentId ? { ...a, ...updates } : a)),
+      agents: workflow.agents.map((a: any) => (a.id === agentId ? { ...a, ...updates } : a)),
     });
   };
 
   const connectAgents = (fromId: string, toId: string) => {
     setWorkflow({
       ...workflow,
-      agents: workflow.agents.map((agent) => {
+      agents: workflow.agents.map((agent: any) => {
         if (agent.id === toId) {
           return {
             ...agent,
@@ -243,7 +243,7 @@ function AgentCard({
   onConnect: (toId: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const availableConnections = allAgents.filter((a) => a.id !== agent.id && a.order > agent.order);
+  const availableConnections = allAgents.filter((a: AgentDefinition) => a.id !== agent.id && a.order > agent.order);
 
   return (
     <div className="border border-gray-200 rounded-xl p-4">
@@ -312,8 +312,8 @@ function AgentCard({
                 Receives input from:
               </label>
               <div className="flex flex-wrap gap-2">
-                {agent.inputFrom.map((fromId) => {
-                  const fromAgent = allAgents.find((a) => a.id === fromId);
+                {agent.inputFrom.map((fromId: string) => {
+                  const fromAgent = allAgents.find((a: AgentDefinition) => a.id === fromId);
                   return (
                     <span
                       key={fromId}
@@ -342,7 +342,7 @@ function AgentCard({
                 className="block w-full rounded-lg border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-sm px-3 py-2"
               >
                 <option value="">Select agent...</option>
-                {availableConnections.map((a) => (
+                {availableConnections.map((a: AgentDefinition) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>

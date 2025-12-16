@@ -202,13 +202,13 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
     setWorkflow((prev) => ({
       ...prev,
       agents: prev.agents
-        .filter((a) => a.id !== nodeId)
-        .map((a) => ({
+        .filter((a: any) => a.id !== nodeId)
+        .map((a: any) => ({
           ...a,
-          inputFrom: a.inputFrom?.filter(id => id !== nodeId) || [],
-          outputTo: a.outputTo?.filter(id => id !== nodeId) || [],
+          inputFrom: a.inputFrom?.filter((id: string) => id !== nodeId) || [],
+          outputTo: a.outputTo?.filter((id: string) => id !== nodeId) || [],
         }))
-        .map((a, index) => ({ ...a, order: index + 1 })),
+        .map((a: any, index: number) => ({ ...a, order: index + 1 })),
     }));
   }, []);
 
@@ -248,7 +248,7 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
     const edgeList: Edge[] = [];
 
     // Start Flow connections
-    initialWorkflow.agents.forEach((agent) => {
+    initialWorkflow.agents.forEach((agent: any) => {
       if (agent.inputFrom?.includes('start')) {
         edgeList.push({
           id: `start-${agent.id}`,
@@ -261,8 +261,8 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
     });
 
     // Agent to agent connections
-    initialWorkflow.agents.forEach((agent) => {
-      agent.outputTo?.forEach((targetId) => {
+    initialWorkflow.agents.forEach((agent: any) => {
+      agent.outputTo?.forEach((targetId: string) => {
         edgeList.push({
           id: `${agent.id}-${targetId}`,
           source: agent.id,
@@ -322,13 +322,13 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
     }
     
     // Only sync if workflow actually changed (not initial state)
-    const currentEdgeIds = new Set(edges.map(e => e.id));
+    const currentEdgeIds = new Set(edges.map((e: Edge) => e.id));
     const workflowEdgeIds = new Set<string>();
-    workflow.agents.forEach((agent) => {
+    workflow.agents.forEach((agent: any) => {
       if (agent.inputFrom?.includes('start')) {
         workflowEdgeIds.add(`start-${agent.id}`);
       }
-      agent.outputTo?.forEach((targetId) => {
+      agent.outputTo?.forEach((targetId: string) => {
         workflowEdgeIds.add(`${agent.id}-${targetId}`);
       });
     });
@@ -344,7 +344,7 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
     setEdges(() => {
       const newEdges: Edge[] = [];
 
-      workflow.agents.forEach((agent) => {
+      workflow.agents.forEach((agent: any) => {
         if (agent.inputFrom?.includes('start')) {
           newEdges.push({
             id: `start-${agent.id}`,
@@ -356,8 +356,8 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
         }
       });
 
-      workflow.agents.forEach((agent) => {
-        agent.outputTo?.forEach((targetId) => {
+      workflow.agents.forEach((agent: any) => {
+        agent.outputTo?.forEach((targetId: string) => {
           newEdges.push({
             id: `${agent.id}-${targetId}`,
             source: agent.id,
@@ -382,7 +382,7 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
       // Update workflow connections
       setWorkflow({
         ...workflow,
-        agents: workflow.agents.map((agent) => {
+        agents: workflow.agents.map((agent: any) => {
           if (agent.id === sourceId && sourceId !== 'start') {
             const existingOutputs = agent.outputTo || [];
             if (!existingOutputs.includes(targetId)) {
@@ -409,7 +409,7 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
       if (sourceId === 'start') {
         setWorkflow({
           ...workflow,
-          agents: workflow.agents.map((agent) => {
+          agents: workflow.agents.map((agent: any) => {
             if (agent.id === targetId) {
               const existingInputs = agent.inputFrom || [];
               if (!existingInputs.includes('start')) {
@@ -431,18 +431,18 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
 
   const onEdgesDelete = useCallback(
     (deleted: Edge[]) => {
-      deleted.forEach((edge) => {
+      deleted.forEach((edge: Edge) => {
         const sourceId = edge.source;
         const targetId = edge.target;
 
         if (sourceId === 'start') {
           setWorkflow({
             ...workflow,
-            agents: workflow.agents.map((agent) => {
+            agents: workflow.agents.map((agent: any) => {
               if (agent.id === targetId) {
                 return {
                   ...agent,
-                  inputFrom: agent.inputFrom?.filter(id => id !== 'start') || [],
+                  inputFrom: agent.inputFrom?.filter((id: string) => id !== 'start') || [],
                 };
               }
               return agent;
@@ -451,17 +451,17 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
         } else {
           setWorkflow({
             ...workflow,
-            agents: workflow.agents.map((agent) => {
+            agents: workflow.agents.map((agent: any) => {
               if (agent.id === sourceId) {
                 return {
                   ...agent,
-                  outputTo: agent.outputTo?.filter(id => id !== targetId) || [],
+                  outputTo: agent.outputTo?.filter((id: string) => id !== targetId) || [],
                 };
               }
               if (agent.id === targetId) {
                 return {
                   ...agent,
-                  inputFrom: agent.inputFrom?.filter(id => id !== sourceId) || [],
+                  inputFrom: agent.inputFrom?.filter((id: string) => id !== sourceId) || [],
                 };
               }
               return agent;
@@ -575,7 +575,7 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
 
         {/* Agents List */}
         <div className="flex-1 overflow-y-auto p-2">
-          {workflow.agents.map((agent) => (
+          {workflow.agents.map((agent: any) => (
             <div
               key={agent.id}
               className="bg-gray-700 rounded-lg p-3 mb-2 cursor-pointer hover:bg-gray-600 transition-colors"
@@ -610,7 +610,7 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
                   No agents available. <a href="/app/agents" className="text-orange-400 underline">Create one</a>
                 </p>
               ) : (
-                availableAgents.map((agent) => (
+                availableAgents.map((agent: any) => (
                   <button
                     key={agent.id}
                     onClick={() => addAgent(agent.id)}

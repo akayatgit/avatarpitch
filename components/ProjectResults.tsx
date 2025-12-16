@@ -103,7 +103,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
     setDownloading(false);
   };
 
-  const totalDuration = result.scenes.reduce((sum, scene) => sum + (scene.durationSeconds || 0), 0);
+  const totalDuration = result.scenes.reduce((sum: number, scene: any) => sum + (scene.durationSeconds || 0), 0);
 
   const uploadImageToServer = async (file: File): Promise<string> => {
     const formData = new FormData();
@@ -228,7 +228,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
           </button>
           </div>
         <div className="space-y-3 sm:space-y-4">
-          {result.scenes.map((scene) => {
+          {result.scenes.map((scene: any) => {
             const isExpanded = expandedScenes.has(scene.index);
             const previewText = scene.imagePrompt.length > 100 
               ? scene.imagePrompt.substring(0, 100) + '...' 

@@ -68,8 +68,8 @@ export default function AgentBreakdownDialog({
           </h3>
           <div className="space-y-3">
             {agentContributions
-              .sort((a, b) => a.order - b.order)
-              .map((contrib) => (
+              .sort((a: any, b: any) => a.order - b.order)
+              .map((contrib: any) => (
                 <div
                   key={contrib.agentId}
                   className="border border-gray-200 rounded-lg p-4 bg-gray-50"

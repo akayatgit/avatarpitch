@@ -73,7 +73,7 @@ export default function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 px-2 lg:px-4 py-4 lg:py-6 space-y-1 lg:space-y-2 overflow-y-auto">
-          {navigation.map((item) => {
+          {navigation.map((item: any) => {
             const isActive =
               pathname === item.href || (item.href !== '/app' && pathname.startsWith(item.href));
             return (

@@ -41,7 +41,7 @@ export default function TemplateList({ templates }: TemplateListProps) {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-      {templates.map((template) => (
+      {templates.map((template: any) => (
         <div
           key={template.id}
           className="border border-gray-200 rounded-xl p-5 sm:p-6 active:shadow-lg transition-all bg-white cursor-pointer group active:scale-98 touch-manipulation"

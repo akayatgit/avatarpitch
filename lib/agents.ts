@@ -43,7 +43,7 @@ export async function getAllAgents(): Promise<AgentDefinition[]> {
 
   if (!data) return [];
 
-  return data.map((agent) => ({
+  return data.map((agent: any) => ({
     id: agent.id,
     role: agent.role,
     name: agent.name,

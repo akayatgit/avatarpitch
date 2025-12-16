@@ -145,11 +145,11 @@ export default function VisualWorkflowEditor({ templateId, initialConfig }: Visu
     setWorkflow({
       ...workflow,
       agents: workflow.agents
-        .filter((a) => a.id !== nodeId)
-        .map((a) => ({
+        .filter((a: any) => a.id !== nodeId)
+        .map((a: any) => ({
           ...a,
-          inputFrom: a.inputFrom?.filter(id => id !== nodeId) || [],
-          outputTo: a.outputTo?.filter(id => id !== nodeId) || [],
+          inputFrom: a.inputFrom?.filter((id: string) => id !== nodeId) || [],
+          outputTo: a.outputTo?.filter((id: string) => id !== nodeId) || [],
         }))
         .map((a, index) => ({ ...a, order: index + 1 })),
     });
@@ -421,8 +421,8 @@ export default function VisualWorkflowEditor({ templateId, initialConfig }: Visu
   });
 
   // Node to node connections
-  nodes.forEach((node) => {
-    node.connections.forEach((targetId) => {
+  nodes.forEach((node: any) => {
+    node.connections.forEach((targetId: string) => {
       const targetNode = nodes.find(n => n.id === targetId);
       if (targetNode) {
         const fromPoint = getConnectionPoint(node.id, 'bottom');

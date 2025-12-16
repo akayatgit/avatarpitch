@@ -157,7 +157,7 @@ export default async function Dashboard() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-6 lg:mb-8">
-        {stats.map((stat) => (
+        {stats.map((stat: any) => (
           <div
             key={stat.name}
             className="bg-white rounded-xl p-5 sm:p-6 shadow-sm border border-gray-200 active:scale-98 transition-transform"

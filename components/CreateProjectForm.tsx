@@ -229,7 +229,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
             className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
           >
             <option value="">Select workspace...</option>
-            {workspaces.map((ws) => (
+            {workspaces.map((ws: any) => (
               <option key={ws.id} value={ws.id}>
                 {ws.name} (
                 {ws.templates && Array.isArray(ws.templates) && ws.templates.length > 0

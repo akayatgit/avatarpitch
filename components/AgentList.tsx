@@ -72,7 +72,7 @@ export default function AgentList({ agents, updateAgent, deleteAgent }: AgentLis
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-      {agents.map((agent) => (
+      {agents.map((agent: any) => (
         <div
           key={agent.id}
           className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200"
