@@ -55,6 +55,30 @@ export async function generateScenes(
   const audienceText = targetAudience || 'General audience';
   const linkText = productLink || 'Not provided';
 
+  // Extract sceneBlueprint with proper type handling
+  const sceneBlueprint = ('sceneBlueprint' in templateConfig.workflow && templateConfig.workflow.sceneBlueprint && Array.isArray(templateConfig.workflow.sceneBlueprint))
+    ? templateConfig.workflow.sceneBlueprint
+    : [];
+  
+  const sceneBlueprintText = sceneBlueprint
+    .map((s: any, i: number) => `${i + 1}. ${s.type.toUpperCase()}: ${'goal' in s ? s.goal : 'Create engaging content'}`)
+    .join('\n');
+  
+  const constraints = ('constraints' in templateConfig.workflow && Array.isArray(templateConfig.workflow.constraints))
+    ? templateConfig.workflow.constraints
+    : [];
+  
+  const constraintsText = constraints.map((c: string) => `- ${c}`).join('\n');
+  
+  const systemPrompt = ('systemPrompt' in templateConfig.workflow && typeof templateConfig.workflow.systemPrompt === 'string')
+    ? templateConfig.workflow.systemPrompt
+    : 'Generate engaging video content';
+  
+  const firstSceneType = sceneBlueprint.length > 0 && sceneBlueprint[0] ? (sceneBlueprint[0] as any).type : 'hook';
+  const sceneTypes = sceneBlueprint.length > 0 
+    ? sceneBlueprint.map((s: any) => s.type).join(', ')
+    : 'hook, problem, solution, proof, cta';
+
   const prompt = `You are a video script generator. Generate a ${sceneCount}-scene video script based on the following:
 
 PRODUCT: ${productName}
@@ -70,24 +94,20 @@ TEMPLATE CONFIG:
 - Scene Count: ${sceneCount}
 - Scene Duration Range: ${minSeconds}-${maxSeconds} seconds per scene
 
-SYSTEM PROMPT: ${'systemPrompt' in templateConfig.workflow ? templateConfig.workflow.systemPrompt : 'Generate engaging video content'}
+SYSTEM PROMPT: ${systemPrompt}
 
 SCENE BLUEPRINT:
-${('sceneBlueprint' in templateConfig.workflow && templateConfig.workflow.sceneBlueprint
-  ? templateConfig.workflow.sceneBlueprint
-  : []
-).map((s: any, i: number) => `${i + 1}. ${s.type.toUpperCase()}: ${'goal' in s ? s.goal : 'Create engaging content'}`)
-  .join('\n')}
+${sceneBlueprintText}
 
 CONSTRAINTS:
-${('constraints' in templateConfig.workflow ? templateConfig.workflow.constraints : []).map((c: string) => `- ${c}`).join('\n')}
+${constraintsText}
 
 Generate a JSON response with this EXACT structure:
 {
   "scenes": [
     {
       "index": 1,
-      "shotType": "${templateConfig.workflow.sceneBlueprint?.[0]?.type || 'hook'}",
+      "shotType": "${firstSceneType}",
       "durationSeconds": <number between ${minSeconds} and ${maxSeconds}>,
       "imagePrompt": "<detailed visual description for this scene>",
       "camera": "<camera angle/movement description>",
@@ -107,8 +127,8 @@ Generate a JSON response with this EXACT structure:
 
 CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no explanations. Ensure:
 - Exactly ${sceneCount} scenes
-- Each scene MUST have: index (1-${sceneCount}), shotType (use sceneBlueprint types: ${templateConfig.workflow.sceneBlueprint?.map((s: any) => s.type).join(', ') || 'hook, problem, solution, proof, cta'}), imagePrompt (detailed visual description), camera, and durationSeconds (${minSeconds}-${maxSeconds})
-- Scene 1 shotType MUST be "${templateConfig.workflow.sceneBlueprint?.[0]?.type || 'hook'}"
+- Each scene MUST have: index (1-${sceneCount}), shotType (use sceneBlueprint types: ${sceneTypes}), imagePrompt (detailed visual description), camera, and durationSeconds (${minSeconds}-${maxSeconds})
+- Scene 1 shotType MUST be "${firstSceneType}"
 - All durations are integers
 - Total video length should be reasonable for ${platform}`;
 
@@ -140,11 +160,8 @@ CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no explanations. 
           // Ensure shotType exists - use sceneBlueprint if available
           let shotType = scene.shotType;
           if (!shotType) {
-            const blueprint = ('sceneBlueprint' in templateConfig.workflow && templateConfig.workflow.sceneBlueprint) 
-              ? templateConfig.workflow.sceneBlueprint 
-              : undefined;
-            if (blueprint && Array.isArray(blueprint) && blueprint[idx]) {
-              shotType = (blueprint[idx] as any).type || (idx === 0 ? 'hook' : 'general');
+            if (sceneBlueprint.length > 0 && sceneBlueprint[idx]) {
+              shotType = (sceneBlueprint[idx] as any).type || (idx === 0 ? 'hook' : 'general');
             } else {
               shotType = idx === 0 ? 'hook' : 'general';
             }
@@ -152,10 +169,7 @@ CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no explanations. 
           
           // If imagePrompt is still empty, generate a default based on shotType
           if (!imagePrompt || imagePrompt.trim().length === 0) {
-            const blueprint = ('sceneBlueprint' in templateConfig.workflow && templateConfig.workflow.sceneBlueprint) 
-              ? templateConfig.workflow.sceneBlueprint 
-              : undefined;
-            const goal = blueprint && Array.isArray(blueprint) && blueprint[idx] ? (blueprint[idx] as any).goal : 'Show product';
+            const goal = sceneBlueprint.length > 0 && sceneBlueprint[idx] ? (sceneBlueprint[idx] as any).goal : 'Show product';
             imagePrompt = `${goal} scene with clear composition and good lighting`;
           }
           
