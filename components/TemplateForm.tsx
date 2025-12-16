@@ -6,7 +6,7 @@ import TemplateConfigForm from './TemplateConfigForm';
 
 interface TemplateFormProps {
   createTemplate?: (formData: FormData) => Promise<{ error?: string; success?: boolean }>;
-  updateTemplate?: (templateId: string, formData: FormData) => Promise<{ error?: string; success?: boolean }>;
+  updateTemplate?: (formData: FormData) => Promise<{ error?: string; success?: boolean }>;
   templateId?: string;
   initialName?: string;
   initialDescription?: string;
