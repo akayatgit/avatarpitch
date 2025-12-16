@@ -25,7 +25,7 @@ export default async function CreateProjectPage() {
 
     // Fetch template names for each workspace
     const validWorkspaces = await Promise.all(
-    workspacesWithTemplates.map(async (workspace) => {
+    workspacesWithTemplates.map(async (workspace: any) => {
       if (!workspace.template_id) return null;
 
       const { data: template, error: templateError } = await supabaseAdmin
