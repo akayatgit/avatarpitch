@@ -73,8 +73,10 @@ TEMPLATE CONFIG:
 SYSTEM PROMPT: ${'systemPrompt' in templateConfig.workflow ? templateConfig.workflow.systemPrompt : 'Generate engaging video content'}
 
 SCENE BLUEPRINT:
-${templateConfig.workflow.sceneBlueprint
-  .map((s, i) => `${i + 1}. ${s.type.toUpperCase()}: ${'goal' in s ? s.goal : 'Create engaging content'}`)
+${('sceneBlueprint' in templateConfig.workflow && templateConfig.workflow.sceneBlueprint
+  ? templateConfig.workflow.sceneBlueprint
+  : []
+).map((s: any, i: number) => `${i + 1}. ${s.type.toUpperCase()}: ${'goal' in s ? s.goal : 'Create engaging content'}`)
   .join('\n')}
 
 CONSTRAINTS:
@@ -138,9 +140,11 @@ CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no explanations. 
           // Ensure shotType exists - use sceneBlueprint if available
           let shotType = scene.shotType;
           if (!shotType) {
-            const blueprint = templateConfig.workflow.sceneBlueprint;
-            if (blueprint && blueprint[idx]) {
-              shotType = blueprint[idx].type || (idx === 0 ? 'hook' : 'general');
+            const blueprint = ('sceneBlueprint' in templateConfig.workflow && templateConfig.workflow.sceneBlueprint) 
+              ? templateConfig.workflow.sceneBlueprint 
+              : undefined;
+            if (blueprint && Array.isArray(blueprint) && blueprint[idx]) {
+              shotType = (blueprint[idx] as any).type || (idx === 0 ? 'hook' : 'general');
             } else {
               shotType = idx === 0 ? 'hook' : 'general';
             }
@@ -148,8 +152,10 @@ CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no explanations. 
           
           // If imagePrompt is still empty, generate a default based on shotType
           if (!imagePrompt || imagePrompt.trim().length === 0) {
-            const blueprint = templateConfig.workflow.sceneBlueprint;
-            const goal = blueprint && blueprint[idx] ? blueprint[idx].goal : 'Show product';
+            const blueprint = ('sceneBlueprint' in templateConfig.workflow && templateConfig.workflow.sceneBlueprint) 
+              ? templateConfig.workflow.sceneBlueprint 
+              : undefined;
+            const goal = blueprint && Array.isArray(blueprint) && blueprint[idx] ? (blueprint[idx] as any).goal : 'Show product';
             imagePrompt = `${goal} scene with clear composition and good lighting`;
           }
           
