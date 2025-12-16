@@ -2,48 +2,133 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { bootstrap } from './actions';
 import Link from 'next/link';
 import NetworkError from '@/components/NetworkError';
+import { isSupabaseNetworkError } from '@/lib/networkError';
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export default async function Dashboard() {
+  console.log('[Dashboard] Function started');
   let bootstrapError: Error | null = null;
   
   try {
+    console.log('[Dashboard] Calling bootstrap()...');
     await bootstrap();
+    console.log('[Dashboard] bootstrap() completed successfully');
   } catch (error: any) {
+    console.error('[Dashboard] bootstrap() error:', error);
     bootstrapError = error;
     // If it's a network error, show the network error component
     if (error.message?.startsWith('NETWORK_ERROR:')) {
+      console.log('[Dashboard] Returning NetworkError component');
       return <NetworkError message={error.message.replace('NETWORK_ERROR: ', '')} />;
     }
     // For other errors, re-throw to show Next.js error page
+    console.error('[Dashboard] Re-throwing bootstrap error');
     throw error;
   }
 
-  const { data: workspaces } = await supabaseAdmin
-    .from('workspaces')
-    .select('id, name, template_id')
-    .order('created_at', { ascending: false });
+  // Fetch workspaces with error handling
+  console.log('[Dashboard] Fetching workspaces...');
+  let workspaces: any[] | null = null;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('workspaces')
+      .select('id, name, template_id')
+      .order('created_at', { ascending: false });
+    
+    console.log('[Dashboard] Workspaces query result - data:', data?.length || 0, 'items, error:', error?.message || 'none');
+    
+    if (error && isSupabaseNetworkError(error)) {
+      console.error('[Dashboard] Network error fetching workspaces');
+      return <NetworkError message="Unable to load workspaces. Please check your internet connection." />;
+    }
+    
+    if (error) {
+      console.error('[Dashboard] Error fetching workspaces:', error);
+    } else {
+      workspaces = data;
+      console.log('[Dashboard] Workspaces loaded successfully:', workspaces?.length || 0);
+    }
+  } catch (error: any) {
+    console.error('[Dashboard] Unexpected error fetching workspaces:', error);
+    if (isSupabaseNetworkError(error)) {
+      console.error('[Dashboard] Network error in catch block');
+      return <NetworkError message="Unable to load workspaces. Please check your internet connection." />;
+    }
+  }
 
-  const { data: defaultWorkspace } = await supabaseAdmin
-    .from('workspaces')
-    .select('id, name, template_id')
-    .eq('name', 'default')
-    .single();
+  // Fetch default workspace with error handling (single() returns error if not found)
+  console.log('[Dashboard] Fetching default workspace...');
+  let defaultWorkspace: any = null;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('workspaces')
+      .select('id, name, template_id')
+      .eq('name', 'default')
+      .single();
+    
+    console.log('[Dashboard] Default workspace query result - data:', data ? 'found' : 'null', 'error:', error?.code || error?.message || 'none');
+    
+    if (error) {
+      // Check if it's a "not found" error (PGRST116 or status 406)
+      // This is expected if no default workspace exists yet
+      if (error.code === 'PGRST116' || error.code === '42704' || error.status === 406) {
+        // Not found is fine, we'll use first workspace instead
+        console.log('[Dashboard] No default workspace found (expected), will use first available workspace');
+      } else if (isSupabaseNetworkError(error)) {
+        console.error('[Dashboard] Network error fetching default workspace');
+        return <NetworkError message="Unable to load workspace. Please check your internet connection." />;
+      } else {
+        console.error('[Dashboard] Error fetching default workspace:', error);
+      }
+    } else {
+      defaultWorkspace = data;
+      console.log('[Dashboard] Default workspace loaded:', defaultWorkspace?.name || 'unnamed');
+    }
+  } catch (error: any) {
+    console.error('[Dashboard] Unexpected error fetching default workspace:', error);
+    if (isSupabaseNetworkError(error)) {
+      console.error('[Dashboard] Network error in catch block for default workspace');
+      return <NetworkError message="Unable to load workspace. Please check your internet connection." />;
+    }
+  }
 
   const selectedWorkspace = defaultWorkspace || (workspaces && workspaces[0]);
+  console.log('[Dashboard] Selected workspace:', selectedWorkspace?.name || 'none', 'template_id:', selectedWorkspace?.template_id || 'none');
 
   // Fetch template name if template_id exists
   let templateName: string | null = null;
   if (selectedWorkspace?.template_id) {
-    const { data: template } = await supabaseAdmin
-      .from('templates')
-      .select('name')
-      .eq('id', selectedWorkspace.template_id)
-      .single();
-    templateName = template?.name || null;
+    console.log('[Dashboard] Fetching template name for template_id:', selectedWorkspace.template_id);
+    try {
+      const { data: template, error: templateError } = await supabaseAdmin
+        .from('templates')
+        .select('name')
+        .eq('id', selectedWorkspace.template_id)
+        .single();
+      
+      console.log('[Dashboard] Template query result - name:', template?.name || 'null', 'error:', templateError?.message || 'none');
+      
+      if (templateError && isSupabaseNetworkError(templateError)) {
+        console.error('[Dashboard] Network error fetching template');
+        return <NetworkError message="Unable to load template. Please check your internet connection." />;
+      }
+      
+      if (!templateError && template) {
+        templateName = template.name || null;
+        console.log('[Dashboard] Template name loaded:', templateName);
+      }
+    } catch (error: any) {
+      console.error('[Dashboard] Unexpected error fetching template:', error);
+      if (isSupabaseNetworkError(error)) {
+        console.error('[Dashboard] Network error in catch block for template');
+        return <NetworkError message="Unable to load template. Please check your internet connection." />;
+      }
+    }
+  } else {
+    console.log('[Dashboard] No template_id found in selected workspace, skipping template fetch');
   }
 
   // Get stats (mock for now, can be enhanced later)
@@ -52,6 +137,10 @@ export default async function Dashboard() {
     { name: 'Workspaces', value: String(workspaces?.length || 0), icon: '📁' },
     { name: 'Templates', value: '3', icon: '📄' },
   ];
+
+  console.log('[Dashboard] Preparing to render with stats:', stats);
+  console.log('[Dashboard] Final state - workspaces:', workspaces?.length || 0, 'selectedWorkspace:', selectedWorkspace?.name || 'none', 'templateName:', templateName || 'none');
+  console.log('[Dashboard] Starting render...');
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">
