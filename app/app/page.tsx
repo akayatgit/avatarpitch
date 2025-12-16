@@ -72,9 +72,9 @@ export default async function Dashboard() {
     console.log('[Dashboard] Default workspace query result - data:', data ? 'found' : 'null', 'error:', error?.code || error?.message || 'none');
     
     if (error) {
-      // Check if it's a "not found" error (PGRST116 or status 406)
+      // Check if it's a "not found" error (PGRST116)
       // This is expected if no default workspace exists yet
-      if (error.code === 'PGRST116' || error.code === '42704' || error.status === 406) {
+      if (error.code === 'PGRST116' || error.code === '42704') {
         // Not found is fine, we'll use first workspace instead
         console.log('[Dashboard] No default workspace found (expected), will use first available workspace');
       } else if (isSupabaseNetworkError(error)) {
