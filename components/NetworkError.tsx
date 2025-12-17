@@ -33,7 +33,7 @@ export default function NetworkError({ message }: NetworkErrorProps) {
         </p>
         <button
           onClick={() => window.location.reload()}
-          className="w-full px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 active:scale-95 transition-all font-medium shadow-md touch-manipulation min-h-[44px]"
+          className="w-full btn-primary min-h-[44px]"
         >
           Retry
         </button>

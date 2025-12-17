@@ -37,13 +37,13 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
   };
 
   return (
-    <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200 mb-6">
+    <div className="card mb-6">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base sm:text-lg font-semibold text-gray-900">Create Agent</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Create Agent</h2>
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 active:scale-95 transition-all font-medium text-sm sm:text-base touch-manipulation min-h-[44px]"
+          className="btn-primary text-sm min-h-[44px]"
         >
           {isOpen ? '−' : '+'}
         </button>
@@ -52,7 +52,7 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
       {isOpen && (
         <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
               Agent Name *
             </label>
             <input
@@ -60,13 +60,13 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
               id="name"
               name="name"
               required
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm sm:text-base touch-manipulation min-h-[44px]"
+              className="input-field min-h-[44px] touch-manipulation"
               placeholder="e.g., Fashion Expert"
             />
           </div>
 
           <div>
-            <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">
               Role *
             </label>
             <input
@@ -74,39 +74,39 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
               id="role"
               name="role"
               required
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm sm:text-base touch-manipulation min-h-[44px]"
+              className="input-field min-h-[44px] touch-manipulation"
               placeholder="e.g., fashion_expert"
             />
           </div>
 
           <div>
-            <label htmlFor="systemPrompt" className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label htmlFor="systemPrompt" className="block text-sm font-medium text-gray-700 mb-2">
               System Prompt
             </label>
             <textarea
               id="systemPrompt"
               name="systemPrompt"
               rows={4}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm sm:text-base resize-y touch-manipulation"
+              className="input-field resize-y touch-manipulation"
               placeholder="You are a fashion expert with deep knowledge..."
             />
           </div>
 
           <div>
-            <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 mb-2">
               Task Prompt
             </label>
             <textarea
               id="prompt"
               name="prompt"
               rows={3}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm sm:text-base resize-y touch-manipulation"
+              className="input-field resize-y touch-manipulation"
               placeholder="Analyze the product and produce insights..."
             />
           </div>
 
           <div>
-            <label htmlFor="temperature" className="block text-sm font-medium text-gray-700 mb-1.5">
+            <label htmlFor="temperature" className="block text-sm font-medium text-gray-700 mb-2">
               Temperature (0-2)
             </label>
             <input
@@ -117,26 +117,26 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
               max="2"
               step="0.1"
               defaultValue="0.7"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-sm sm:text-base touch-manipulation min-h-[44px]"
+              className="input-field min-h-[44px] touch-manipulation"
             />
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="text-sm text-red-600 bg-red-50 p-4 rounded-xl border border-red-200">
+              {error}
             </div>
           )}
 
           {success && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <p className="text-sm text-green-800">Agent created successfully!</p>
+            <div className="text-sm text-primary-600 bg-primary-50 p-4 rounded-xl border border-primary-200">
+              Agent created successfully!
             </div>
           )}
 
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 active:scale-95 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation min-h-[44px]"
+            className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
           >
             {isSubmitting ? 'Creating...' : 'Create Agent'}
           </button>

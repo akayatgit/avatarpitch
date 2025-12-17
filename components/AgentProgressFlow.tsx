@@ -57,7 +57,7 @@ export default function AgentProgressFlow({
   const getAgentColor = (status: string) => {
     switch (status) {
       case 'running':
-        return 'bg-purple-500 border-purple-600';
+        return 'bg-primary-500 border-primary-600';
       case 'completed':
         return 'bg-green-500 border-green-600';
       default:
@@ -232,7 +232,7 @@ export default function AgentProgressFlow({
                     </div>
                     {/* Click indicator */}
                     {hasResponse && (
-                      <div className="mt-0.5 text-[8px] text-purple-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="mt-0.5 text-[8px] text-primary-600 opacity-0 group-hover:opacity-100 transition-opacity">
                         Click to view
                       </div>
                     )}

@@ -16,20 +16,21 @@ export default function CollapsibleTemplateForm({ createTemplate }: CollapsibleT
         <div className="mb-6">
           <button
             onClick={() => setIsOpen(true)}
-            className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3.5 bg-purple-600 text-white rounded-xl active:bg-purple-700 active:scale-95 transition-all font-medium shadow-md touch-manipulation min-h-[44px]"
+            className="btn-primary inline-flex items-center justify-center gap-2 min-h-[44px]"
           >
-            + Create New Template
+            <span>+</span>
+            <span>Create New Template</span>
           </button>
         </div>
       )}
 
       {isOpen && (
-        <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200 mb-6">
+        <div className="card mb-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-base sm:text-lg font-semibold text-gray-900">Create Template</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Create Template</h2>
             <button
               onClick={() => setIsOpen(false)}
-              className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
             >
               ✕ Close
             </button>

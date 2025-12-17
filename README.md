@@ -1,10 +1,9 @@
 # AvatarPitch MVP
 
-A minimal SaaS MVP for AI-powered video generation. Business owners organize content by Workspaces, use Templates to define generation workflows, and generate video projects on-demand with zero manual intervention.
+A minimal SaaS MVP for AI-powered video generation. Use Templates to define generation workflows and generate video projects on-demand with zero manual intervention.
 
 ## Features
 
-- **Workspaces**: Organize projects by business unit (e.g., `winterwears`, `kurtasets`)
 - **Templates**: JSON-based configurations for LangChain agent workflows
 - **Stateless Projects**: Generate videos on-demand, no storage required
 - **LangChain Integration**: OpenAI-powered scene generation with structured JSON output
@@ -51,7 +50,6 @@ Run the SQL migration in your Supabase SQL editor:
 
 This will create:
 - `templates` table with 3 seeded templates
-- `workspaces` table with a default workspace
 
 ### 4. Run Development Server
 
@@ -68,8 +66,6 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 │   ├── app/
 │   │   ├── actions.ts          # Server actions (bootstrap, CRUD, generate)
 │   │   ├── page.tsx             # Dashboard
-│   │   ├── workspaces/
-│   │   │   └── page.tsx         # Workspace management
 │   │   ├── templates/
 │   │   │   └── page.tsx         # Template management
 │   │   └── create/
@@ -82,8 +78,6 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 │   └── page.tsx                 # Redirect to /app
 ├── components/
 │   ├── Nav.tsx                  # Navigation component
-│   ├── WorkspaceForm.tsx        # Create workspace form
-│   ├── WorkspaceList.tsx        # Workspace list with template selector
 │   ├── TemplateForm.tsx         # Create template form
 │   ├── TemplateList.tsx         # Template list
 │   ├── CreateProjectForm.tsx    # Project generation form
@@ -96,13 +90,6 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 ```
 
 ## Usage
-
-### Creating a Workspace
-
-1. Navigate to **Workspaces** page
-2. Enter a workspace name (e.g., `winterwears`)
-3. Click "Create Workspace"
-4. Select a template from the dropdown for the workspace
 
 ### Creating a Template
 
@@ -134,7 +121,7 @@ Template config structure:
 
 1. Navigate to **Create Project** page
 2. Fill in the form:
-   - Select workspace (must have template assigned)
+   - Select template (required)
    - Product name (required)
    - Product link (optional)
    - Offer (required)
@@ -167,7 +154,7 @@ The system generates a JSON structure with:
 ## Notes
 
 - Projects are **stateless**: generated on submit, not stored in database
-- Only Workspaces and Templates are persisted
+- Only Templates are persisted
 - Video preview uses a mock URL (replace with actual rendering service)
 - No authentication required for MVP
 - LangChain agent retries once if JSON parsing fails

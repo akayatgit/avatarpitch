@@ -4,15 +4,13 @@ import { useState, useEffect } from 'react';
 import ProjectResults from './ProjectResults';
 import AgentProgressFlow from './AgentProgressFlow';
 
-interface Workspace {
+interface Template {
   id: string;
   name: string;
-  template_id: string | null;
-  templates: Array<{ id: string; name: string }> | null;
 }
 
 interface CreateProjectFormProps {
-  workspaces: Workspace[];
+  templates: Template[];
   generateProject: (formData: FormData) => Promise<any>;
 }
 
@@ -23,7 +21,7 @@ interface Agent {
   order: number;
 }
 
-export default function CreateProjectForm({ workspaces, generateProject }: CreateProjectFormProps) {
+export default function CreateProjectForm({ templates, generateProject }: CreateProjectFormProps) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,25 +30,22 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
   const [currentAgentId, setCurrentAgentId] = useState<string | null>(null);
   const [completedAgents, setCompletedAgents] = useState<Set<string>>(new Set());
   const [agentResponses, setAgentResponses] = useState<Map<string, any>>(new Map());
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [currentScene, setCurrentScene] = useState<number>(0);
   const [totalScenes, setTotalScenes] = useState<number>(0);
   const [showProgressDialog, setShowProgressDialog] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
 
-  // Fetch agents when workspace is selected
+  // Fetch agents when template is selected
   useEffect(() => {
-    if (!selectedWorkspaceId) {
+    if (!selectedTemplateId) {
       setAgents([]);
       return;
     }
 
     const fetchAgents = async () => {
       try {
-        const workspace = workspaces.find(w => w.id === selectedWorkspaceId);
-        if (!workspace?.template_id) return;
-
-        const response = await fetch(`/api/templates/${workspace.template_id}`);
+        const response = await fetch(`/api/templates/${selectedTemplateId}`);
         if (response.ok) {
           const data = await response.json();
           const workflow = data.template?.config?.workflow?.agentWorkflow;
@@ -72,7 +67,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
     };
 
     fetchAgents();
-  }, [selectedWorkspaceId, workspaces]);
+  }, [selectedTemplateId]);
 
   const simulateProgressForScene = async (agents: Agent[], sceneNumber: number) => {
     // Reset progress for this scene
@@ -142,11 +137,10 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
     formData.set('features', features);
 
     // Get scene count from template
-    const workspace = workspaces.find(w => w.id === selectedWorkspaceId);
     let sceneCount = 5; // default
-    if (workspace?.template_id) {
+    if (selectedTemplateId) {
       try {
-        const response = await fetch(`/api/templates/${workspace.template_id}`);
+        const response = await fetch(`/api/templates/${selectedTemplateId}`);
         if (response.ok) {
           const data = await response.json();
           sceneCount = data.template?.config?.output?.sceneCount || 5;
@@ -214,28 +208,24 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
   }
 
   return (
-    <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200">
+    <div className="card">
       <form id="project-form" onSubmit={handleSubmit} className="space-y-5">
         <div>
-          <label htmlFor="workspaceId" className="block text-sm font-medium text-gray-700 mb-2">
-            Workspace *
+          <label htmlFor="templateId" className="block text-sm font-medium text-gray-700 mb-2">
+            Template *
           </label>
           <select
-            id="workspaceId"
-            name="workspaceId"
+            id="templateId"
+            name="templateId"
             required
-            value={selectedWorkspaceId}
-            onChange={(e) => setSelectedWorkspaceId(e.target.value)}
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            value={selectedTemplateId}
+            onChange={(e) => setSelectedTemplateId(e.target.value)}
+            className="input-field min-h-[44px] touch-manipulation"
           >
-            <option value="">Select workspace...</option>
-            {workspaces.map((ws: any) => (
-              <option key={ws.id} value={ws.id}>
-                {ws.name} (
-                {ws.templates && Array.isArray(ws.templates) && ws.templates.length > 0
-                  ? ws.templates[0].name
-                  : 'No template'}
-                )
+            <option value="">Select template...</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
               </option>
             ))}
           </select>
@@ -250,7 +240,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
             id="productName"
             name="productName"
             required
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            className="input-field min-h-[44px] touch-manipulation"
             placeholder="e.g., Winter Cozy Sweater"
           />
         </div>
@@ -263,7 +253,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
             type="url"
             id="productLink"
             name="productLink"
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            className="input-field min-h-[44px] touch-manipulation"
             placeholder="https://example.com/product"
           />
         </div>
@@ -277,7 +267,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
             id="offer"
             name="offer"
             required
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            className="input-field min-h-[44px] touch-manipulation"
             placeholder="e.g., 20% off, Free shipping, Buy 2 Get 1"
           />
         </div>
@@ -291,7 +281,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
             id="features"
             value={features}
             onChange={(e) => setFeatures(e.target.value)}
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            className="input-field min-h-[44px] touch-manipulation"
             placeholder="e.g., Warm, Soft, Durable, Machine washable"
           />
         </div>
@@ -304,7 +294,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
             type="text"
             id="targetAudience"
             name="targetAudience"
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            className="input-field min-h-[44px] touch-manipulation"
             placeholder="e.g., Young professionals, Fashion enthusiasts"
           />
         </div>
@@ -317,7 +307,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
             id="platform"
             name="platform"
             required
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            className="input-field min-h-[44px] touch-manipulation"
           >
             <option value="">Select platform...</option>
             <option value="TikTok">TikTok</option>
@@ -349,7 +339,7 @@ export default function CreateProjectForm({ workspaces, generateProject }: Creat
         <button
           type="submit"
           disabled={loading}
-          className="w-full inline-flex justify-center items-center px-6 py-3.5 border border-transparent text-base font-medium rounded-xl shadow-md text-white bg-purple-600 active:bg-purple-700 active:scale-95 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 transition-all touch-manipulation min-h-[44px]"
+          className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
         >
           {loading ? 'Generating...' : 'Generate Project'}
         </button>

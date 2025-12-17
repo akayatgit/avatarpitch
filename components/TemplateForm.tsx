@@ -127,7 +127,7 @@ export default function TemplateForm({
             name="name"
             required
             defaultValue={initialName}
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            className="input-field min-h-[44px] touch-manipulation"
             placeholder="e.g., UGC Product Demo"
           />
         </div>
@@ -140,7 +140,7 @@ export default function TemplateForm({
             id="description"
             name="description"
             defaultValue={initialDescription}
-            className="block w-full rounded-xl border-gray-300 shadow-sm focus:border-purple-500 focus:ring-2 focus:ring-purple-500 text-base px-4 py-3.5 min-h-[44px] touch-manipulation"
+            className="input-field min-h-[44px] touch-manipulation"
             placeholder="Brief description of this template"
           />
         </div>
@@ -158,14 +158,14 @@ export default function TemplateForm({
           </div>
         )}
         {success && (
-          <div className="text-sm text-green-600 bg-green-50 p-4 rounded-xl border border-green-200">
+          <div className="text-sm text-primary-600 bg-primary-50 p-4 rounded-xl border border-primary-200">
             Template {isEditMode ? 'updated' : 'created'} successfully!
           </div>
         )}
         <button
           type="submit"
           disabled={loading}
-          className="w-full inline-flex items-center justify-center px-6 py-3.5 border border-transparent text-base font-medium rounded-xl shadow-md text-white bg-purple-600 active:bg-purple-700 active:scale-95 disabled:opacity-50 transition-all touch-manipulation min-h-[44px]"
+          className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
         >
           {loading ? (isEditMode ? 'Updating...' : 'Creating...') : (isEditMode ? 'Update Template' : 'Create Template')}
         </button>

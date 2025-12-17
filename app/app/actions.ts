@@ -132,42 +132,6 @@ export async function bootstrap() {
       throw new Error('No templates found. Please run supabase.sql migration first.');
     }
 
-    // Ensure default workspace exists and has a template assigned
-    const { data: defaultWorkspace, error: workspaceError } = await supabaseAdmin
-      .from('workspaces')
-      .select('id, template_id')
-      .eq('name', 'default')
-      .single();
-
-    // Check for network errors
-    if (workspaceError && isSupabaseNetworkError(workspaceError)) {
-      throw new Error('NETWORK_ERROR: No internet connection. Please check your network and try again.');
-    }
-
-    if (defaultWorkspace && !defaultWorkspace.template_id) {
-      // Assign first template to default workspace
-      const { data: firstTemplate, error: templateError } = await supabaseAdmin
-        .from('templates')
-        .select('id')
-        .limit(1)
-        .single();
-
-      if (templateError && isSupabaseNetworkError(templateError)) {
-        throw new Error('NETWORK_ERROR: No internet connection. Please check your network and try again.');
-      }
-
-      if (firstTemplate) {
-        const { error: updateError } = await supabaseAdmin
-          .from('workspaces')
-          .update({ template_id: firstTemplate.id })
-          .eq('id', defaultWorkspace.id);
-
-        if (updateError && isSupabaseNetworkError(updateError)) {
-          throw new Error('NETWORK_ERROR: No internet connection. Please check your network and try again.');
-        }
-      }
-    }
-
     return { success: true };
   } catch (error: any) {
     // Re-throw network errors with the special prefix
@@ -185,41 +149,6 @@ export async function bootstrap() {
   }
 }
 
-export async function createWorkspace(formData: FormData) {
-  const name = formData.get('name') as string;
-
-  if (!name || name.trim().length === 0) {
-    return { error: 'Workspace name is required' };
-  }
-
-  const { data, error } = await supabaseAdmin
-    .from('workspaces')
-    .insert({ name: name.trim() })
-    .select()
-    .single();
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  revalidatePath('/app/workspaces');
-  return { success: true, data };
-}
-
-export async function updateWorkspaceTemplate(workspaceId: string, templateId: string | null) {
-  const { error } = await supabaseAdmin
-    .from('workspaces')
-    .update({ template_id: templateId })
-    .eq('id', workspaceId);
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  revalidatePath('/app/workspaces');
-  revalidatePath('/app');
-  return { success: true };
-}
 
 export async function createTemplate(formData: FormData) {
   const name = formData.get('name') as string;
@@ -319,7 +248,7 @@ export async function updateTemplate(formData: FormData) {
 export async function generateProject(formData: FormData) {
   // Parse and validate form data
   const rawData = {
-    workspaceId: formData.get('workspaceId') as string,
+    templateId: formData.get('templateId') as string,
     productName: formData.get('productName') as string,
     productLink: formData.get('productLink') as string,
     offer: formData.get('offer') as string,
@@ -349,25 +278,11 @@ export async function generateProject(formData: FormData) {
     return { error: `Validation failed: ${validationResult.error.message}` };
   }
 
-  // Fetch workspace and template
-  const { data: workspace, error: workspaceError } = await supabaseAdmin
-    .from('workspaces')
-    .select('id, name, template_id')
-    .eq('id', validationResult.data.workspaceId)
-    .single();
-
-  if (workspaceError || !workspace) {
-    return { error: 'Workspace not found' };
-  }
-
-  if (!workspace.template_id) {
-    return { error: 'Workspace has no template assigned' };
-  }
-
+  // Fetch template directly
   const { data: template, error: templateError } = await supabaseAdmin
     .from('templates')
     .select('id, name, config')
-    .eq('id', workspace.template_id)
+    .eq('id', validationResult.data.templateId)
     .single();
 
   if (templateError || !template) {
@@ -395,18 +310,103 @@ export async function generateProject(formData: FormData) {
     // Mock video URL (stable sample)
     const videoUrl = 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4';
 
+    // Save project to database
+    const projectName = `${validationResult.data.productName} - ${template.name}`;
+    const { data: savedProject, error: saveError } = await supabaseAdmin
+      .from('projects')
+      .insert({
+        name: projectName,
+        template_id: template.id,
+        template_name: template.name,
+        product_name: validationResult.data.productName,
+        product_link: validationResult.data.productLink || null,
+        offer: validationResult.data.offer,
+        features: validationResult.data.features || null,
+        target_audience: validationResult.data.targetAudience || null,
+        platform: validationResult.data.platform,
+        scenes: generated.scenes,
+        rendering_spec: generated.renderingSpec,
+        video_url: videoUrl,
+      })
+      .select()
+      .single();
+
+    if (saveError) {
+      console.error('Error saving project:', saveError);
+      // Still return success with the generated data even if save fails
+    }
+
+    revalidatePath('/app');
+
     return {
       success: true,
       data: {
         ...generated,
         videoUrl,
-        workspaceName: workspace.name,
         templateName: template.name,
+        projectId: savedProject?.id,
       },
     };
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : 'Failed to generate scenes',
+    };
+  }
+}
+
+export async function updateProjectImages(projectId: string, generatedImages: Array<{ sceneIndex: number; url: string }>) {
+  if (!projectId) {
+    return { error: 'Project ID is required' };
+  }
+
+  try {
+    // Fetch the current project
+    const { data: project, error: fetchError } = await supabaseAdmin
+      .from('projects')
+      .select('scenes')
+      .eq('id', projectId)
+      .single();
+
+    if (fetchError || !project) {
+      return { error: 'Project not found' };
+    }
+
+    // Group images by scene index
+    const imagesByScene = new Map<number, string[]>();
+    generatedImages.forEach((img) => {
+      if (!imagesByScene.has(img.sceneIndex)) {
+        imagesByScene.set(img.sceneIndex, []);
+      }
+      imagesByScene.get(img.sceneIndex)!.push(img.url);
+    });
+
+    // Update scenes with image URLs
+    const updatedScenes = (project.scenes as any[]).map((scene: any) => {
+      const sceneImages = imagesByScene.get(scene.index) || [];
+      return {
+        ...scene,
+        imageUrls: sceneImages.length > 0 ? sceneImages : (scene.imageUrls || []),
+      };
+    });
+
+    // Update the project
+    const { error: updateError } = await supabaseAdmin
+      .from('projects')
+      .update({
+        scenes: updatedScenes,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', projectId);
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+
+    revalidatePath('/app');
+    return { success: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'Failed to update project images',
     };
   }
 }

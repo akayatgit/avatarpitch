@@ -304,3 +304,28 @@ ON CONFLICT DO NOTHING;
 INSERT INTO workspaces (name) VALUES ('default')
 ON CONFLICT (name) DO NOTHING;
 
+-- Create projects table
+CREATE TABLE IF NOT EXISTS projects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  template_id UUID REFERENCES templates(id) ON DELETE SET NULL,
+  template_name TEXT,
+  product_name TEXT NOT NULL,
+  product_link TEXT,
+  offer TEXT NOT NULL,
+  features JSONB,
+  target_audience TEXT,
+  platform TEXT NOT NULL CHECK (platform IN ('TikTok', 'Reels', 'Shorts')),
+  scenes JSONB NOT NULL,
+  rendering_spec JSONB NOT NULL,
+  video_url TEXT,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create index on created_at for faster sorting
+CREATE INDEX IF NOT EXISTS idx_projects_created_at ON projects(created_at DESC);
+
+-- Create index on template_id for filtering
+CREATE INDEX IF NOT EXISTS idx_projects_template_id ON projects(template_id);
+

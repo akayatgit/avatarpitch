@@ -3,24 +3,23 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
+import { Home, FileText, Bot, Menu, X, LogOut } from 'lucide-react';
 
 interface NavItem {
   name: string;
   href: string;
-  icon: string;
+  icon: React.ReactNode;
 }
-
-const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/app', icon: '🏠' },
-  { name: 'Workspaces', href: '/app/workspaces', icon: '📁' },
-  { name: 'Templates', href: '/app/templates', icon: '📄' },
-  { name: 'Agents', href: '/app/agents', icon: '🤖' },
-  { name: 'Create Project', href: '/app/create', icon: '✨' },
-];
 
 export default function Sidebar() {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+
+  const navigation: NavItem[] = [
+    { name: 'Home', href: '/app', icon: <Home className="w-5 h-5" /> },
+    { name: 'Templates', href: '/app/templates', icon: <FileText className="w-5 h-5" /> },
+    { name: 'Agents', href: '/app/agents', icon: <Bot className="w-5 h-5" /> },
+  ];
 
   return (
     <>
@@ -30,24 +29,14 @@ export default function Sidebar() {
           <h1 className="text-xl font-bold text-gray-900">AvatarPitch</h1>
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className="p-2 rounded-lg text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-colors touch-manipulation"
+            className="p-2 rounded-xl text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-all duration-200 touch-manipulation"
             aria-label="Toggle menu"
           >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              {isOpen ? (
-                <path d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
+            {isOpen ? (
+              <X className="w-5 h-5" strokeWidth={2} />
+            ) : (
+              <Menu className="w-5 h-5" strokeWidth={2} />
+            )}
           </button>
         </div>
       </div>
@@ -55,7 +44,7 @@ export default function Sidebar() {
       {/* Mobile Overlay */}
       {isOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
+          className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
           onClick={() => setIsOpen(false)}
         />
       )}
@@ -67,13 +56,13 @@ export default function Sidebar() {
         } lg:translate-x-0 w-64`}
       >
         {/* Logo */}
-        <div className="p-4 lg:p-6 border-b border-gray-200">
-          <h1 className="text-xl lg:text-2xl font-bold text-gray-900">AvatarPitch</h1>
+        <div className="p-6 border-b border-gray-200">
+          <h1 className="text-xl font-bold text-gray-900">AvatarPitch</h1>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-2 lg:px-4 py-4 lg:py-6 space-y-1 lg:space-y-2 overflow-y-auto">
-          {navigation.map((item: any) => {
+        <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+          {navigation.map((item) => {
             const isActive =
               pathname === item.href || (item.href !== '/app' && pathname.startsWith(item.href));
             return (
@@ -81,29 +70,28 @@ export default function Sidebar() {
                 key={item.name}
                 href={item.href}
                 onClick={() => setIsOpen(false)}
-                className={`flex items-center gap-3 px-3 lg:px-4 py-3 rounded-xl transition-all active:scale-95 touch-manipulation ${
-                  isActive
-                    ? 'bg-purple-50 text-purple-700 font-medium shadow-sm'
-                    : 'text-gray-700 active:bg-gray-100'
+                className={`nav-item touch-manipulation ${
+                  isActive ? 'nav-item-active' : 'nav-item-inactive'
                 }`}
               >
-                <span className="text-xl lg:text-2xl">{item.icon}</span>
-                <span className="text-base lg:text-sm">{item.name}</span>
+                <span className="flex-shrink-0">{item.icon}</span>
+                <span className="text-sm">{item.name}</span>
               </Link>
             );
           })}
         </nav>
 
         {/* Bottom section */}
-        <div className="p-3 lg:p-4 border-t border-gray-200">
-          <div className="bg-gray-50 rounded-xl p-3 lg:p-4 mb-3 lg:mb-4">
-            <p className="text-xs lg:text-sm text-gray-600 mb-1 lg:mb-2">Current credits</p>
-            <p className="text-xl lg:text-2xl font-bold text-gray-900 mb-2 lg:mb-3">∞</p>
-            <button className="w-full px-4 py-3 bg-purple-600 text-white rounded-xl active:bg-purple-700 active:scale-95 transition-all text-sm font-medium shadow-sm touch-manipulation">
+        <div className="p-4 border-t border-gray-200 space-y-3">
+          <div className="bg-gray-50 rounded-xl p-4">
+            <p className="text-xs text-gray-600 mb-1">Current credits</p>
+            <p className="text-2xl font-bold text-gray-900 mb-3">∞</p>
+            <button className="w-full btn-primary text-sm py-2.5">
               Buy credits
             </button>
           </div>
-          <button className="w-full px-4 py-3 text-gray-700 active:bg-gray-100 rounded-xl transition-all text-sm touch-manipulation">
+          <button className="w-full btn-ghost text-sm py-2.5 flex items-center justify-center gap-2">
+            <LogOut className="w-4 h-4" />
             Log Out
           </button>
         </div>

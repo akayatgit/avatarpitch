@@ -1,15 +1,95 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply antialiased;
-    -webkit-tap-highlight-color: transparent;
-  }
-  
   * {
     -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+    -webkit-tap-highlight-color: transparent;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold text-gray-900;
+  }
+
+  h1 {
+    @apply text-3xl;
+  }
+
+  h2 {
+    @apply text-2xl;
+  }
+
+  h3 {
+    @apply text-xl;
+  }
+
+  h4 {
+    @apply text-lg;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-6 py-3 bg-primary-500 text-white rounded-xl font-medium 
+           shadow-sm hover:bg-primary-600 hover:shadow-md 
+           active:bg-primary-700 active:scale-95 
+           transition-all duration-200 focus:outline-none 
+           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 bg-white text-gray-700 border border-gray-200 
+           rounded-xl font-medium shadow-sm hover:bg-gray-50 
+           hover:shadow-md active:bg-gray-100 active:scale-95 
+           transition-all duration-200 focus:outline-none 
+           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+
+  .btn-ghost {
+    @apply px-6 py-3 text-gray-700 rounded-xl font-medium 
+           hover:bg-gray-100 active:bg-gray-200 
+           transition-all duration-200 focus:outline-none 
+           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+  }
+
+  .card {
+    @apply bg-white rounded-xl p-6 shadow-sm border border-gray-200;
+  }
+
+  .card-elevated {
+    @apply bg-white rounded-xl p-6 shadow-md border border-gray-200;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 border border-gray-200 rounded-xl 
+           focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 
+           transition-all duration-200 text-base bg-white
+           placeholder:text-gray-400;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl 
+           transition-all duration-200;
+  }
+
+  .nav-item-active {
+    @apply bg-primary-50 text-primary-700 font-medium;
+  }
+
+  .nav-item-inactive {
+    @apply text-gray-700 hover:bg-gray-50;
   }
 }
 

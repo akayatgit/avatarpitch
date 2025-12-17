@@ -184,7 +184,7 @@ export type RenderingSpec = z.infer<typeof RenderingSpecSchema>;
 
 // Form input schemas
 export const CreateProjectFormSchema = z.object({
-  workspaceId: z.string().uuid(),
+  templateId: z.string().uuid(),
   productName: z.string().min(1),
   productLink: z.string().url().optional().or(z.literal('')),
   offer: z.string().min(1),

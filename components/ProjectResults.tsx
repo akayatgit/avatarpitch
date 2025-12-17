@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import AgentBreakdownDialog from './AgentBreakdownDialog';
 import ImageGenerationDialog from './ImageGenerationDialog';
 import ImageCarousel from './ImageCarousel';
 import ImageViewer from './ImageViewer';
+import { updateProjectImages } from '@/app/app/actions';
 
 interface AgentContribution {
   agentId: string;
@@ -35,6 +36,7 @@ interface ProjectResultsProps {
       durationSeconds?: number; // Optional for image-first
       agentContributions?: AgentContribution[];
       finalAssembler?: FinalAssembler;
+      imageUrls?: string[]; // Generated image URLs
     }>;
     renderingSpec: {
       aspectRatio: string;
@@ -46,8 +48,8 @@ interface ProjectResultsProps {
       transitions?: string; // Legacy
     };
     videoUrl: string;
-    workspaceName: string;
     templateName: string;
+    projectId?: string; // Project ID for saving images
   };
   onStartNew: () => void;
 }
@@ -65,8 +67,25 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [generatingImages, setGeneratingImages] = useState(false);
+  
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
+
+  // Load existing images from scene.imageUrls when component mounts or result changes
+  useEffect(() => {
+    const existingImages: GeneratedImage[] = result.scenes.flatMap((scene) => 
+      (scene.imageUrls || []).map((url, idx) => ({
+        sceneIndex: scene.index,
+        url,
+        generating: false,
+        imageIndex: idx,
+      }))
+    );
+    
+    if (existingImages.length > 0) {
+      setGeneratedImages(existingImages);
+    }
+  }, [result.scenes]);
 
   const toggleScene = (sceneIndex: number) => {
     setExpandedScenes(prev => {
@@ -83,7 +102,6 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
   const handleDownload = () => {
     setDownloading(true);
     const bundle = {
-      workspace: result.workspaceName,
       template: result.templateName,
       generatedAt: new Date().toISOString(),
       scenes: result.scenes,
@@ -128,6 +146,9 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
     setGeneratingImages(true);
     setGeneratedImages([]);
 
+    // Track generated images locally for saving to database
+    const successfulImages: Array<{ sceneIndex: number; url: string }> = [];
+
     try {
       // Upload reference images
       const referenceImageUrls = await Promise.all(
@@ -170,6 +191,12 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
             
             // Update the specific placeholder with the generated image
             if (data.images && data.images.length > 0) {
+              const imageUrl = data.images[0];
+              successfulImages.push({
+                sceneIndex: scene.index,
+                url: imageUrl,
+              });
+
               setGeneratedImages(prev => {
                 const updated = [...prev];
                 const index = updated.findIndex(
@@ -180,7 +207,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                 if (index !== -1) {
                   updated[index] = {
                     sceneIndex: scene.index,
-                    url: data.images[0], // Take the first (and likely only) image
+                    url: imageUrl,
                     generating: false,
                     imageIndex: imageIndex,
                   };
@@ -201,6 +228,20 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
           }
         }
       }
+
+      // Save generated images to database if projectId is available
+      if (result.projectId && successfulImages.length > 0) {
+        try {
+          const saveResult = await updateProjectImages(result.projectId, successfulImages);
+          if (saveResult.error) {
+            console.error('Error saving images to database:', saveResult.error);
+          } else {
+            console.log('Images saved to database successfully');
+          }
+        } catch (error) {
+          console.error('Error saving images to database:', error);
+        }
+      }
     } catch (error) {
       console.error('Error in image generation:', error);
     } finally {
@@ -213,7 +254,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
       <div className="bg-green-50 border border-green-200 rounded-xl p-4">
         <p className="text-sm sm:text-base text-green-800 font-medium">Project generated successfully!</p>
         <p className="text-xs sm:text-sm text-green-600 mt-1">
-          Workspace: {result.workspaceName} | Template: {result.templateName}
+          Template: {result.templateName}
         </p>
       </div>
 
