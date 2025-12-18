@@ -36,7 +36,7 @@ export default function WorkflowPreview({ templateId, workflow, onClose }: Workf
             </button>
           </div>
           <div className="text-center py-8">
-            <p className="text-gray-600 mb-4">No agent workflow configured for this template.</p>
+            <p className="text-gray-600 mb-4">No agent workflow configured for this content type.</p>
             <Link
               href={`/app/templates/${templateId}/workflow`}
               className="inline-flex items-center px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium"

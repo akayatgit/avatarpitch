@@ -26,10 +26,10 @@ interface GenerateScenesInput {
   templateConfig: TemplateConfig;
   productName: string;
   productLink?: string;
-  offer: string;
+  offer?: string;
   features?: string[];
   targetAudience?: string;
-  platform: 'TikTok' | 'Reels' | 'Shorts';
+  platform?: 'TikTok' | 'Reels' | 'Shorts';
 }
 
 export async function generateScenes(
@@ -54,6 +54,8 @@ export async function generateScenes(
   const featuresText = features && features.length > 0 ? features.join(', ') : 'Not specified';
   const audienceText = targetAudience || 'General audience';
   const linkText = productLink || 'Not provided';
+  const offerText = offer || 'Not specified';
+  const platformText = platform || 'General';
 
   // Extract sceneBlueprint with proper type handling
   const sceneBlueprint = ('sceneBlueprint' in templateConfig.workflow && templateConfig.workflow.sceneBlueprint && Array.isArray(templateConfig.workflow.sceneBlueprint))
@@ -83,10 +85,10 @@ export async function generateScenes(
 
 PRODUCT: ${productName}
 PRODUCT LINK: ${linkText}
-OFFER: ${offer}
+OFFER: ${offerText}
 FEATURES: ${featuresText}
 TARGET AUDIENCE: ${audienceText}
-PLATFORM: ${platform}
+PLATFORM: ${platformText}
 
 TEMPLATE CONFIG:
 - Style: ${templateConfig.output.style}

@@ -22,7 +22,7 @@ export default function TemplateList({ templates }: TemplateListProps) {
   const [previewWorkflow, setPreviewWorkflow] = useState<AgentWorkflow | null>(null);
 
   if (templates.length === 0) {
-    return <p className="text-sm text-gray-500">No templates yet. Create one above.</p>;
+    return <p className="text-sm text-gray-500">No content types yet. Create one above.</p>;
   }
 
   const getTemplateIcon = (name: string) => {

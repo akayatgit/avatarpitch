@@ -50,7 +50,7 @@ export default async function ProjectDetailPage({
             <div>
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{project.name}</h1>
               <div className="flex flex-wrap gap-2 text-sm text-gray-600">
-                <span>Template: {project.template_name || 'Unknown'}</span>
+                <span>Content Type: {project.template_name || 'Unknown'}</span>
                 <span>•</span>
                 <span>Platform: {project.platform}</span>
                 {project.created_at && (

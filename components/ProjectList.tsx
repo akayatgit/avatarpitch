@@ -70,8 +70,51 @@ interface ProjectListProps {
 export default function ProjectList({ projects }: ProjectListProps) {
   if (projects.length === 0) {
     return (
-      <div className="card text-center py-12">
-        <p className="text-gray-500 text-base">No projects found. Create your first project to get started!</p>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] py-12 px-4">
+        <div className="max-w-md w-full text-center space-y-5">
+          {/* Welcome Text */}
+          <div className="space-y-2 opacity-90">
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+              Yay! Welcome to Hauloo.
+            </h2>
+          </div>
+
+          {/* Illustration */}
+          <div className="flex justify-center my-4 sm:my-6">
+            <div className="relative w-full max-w-[200px] sm:max-w-[240px] opacity-90">
+              <img
+                src="/welcome.svg"
+                alt=""
+                className="w-full h-auto object-contain"
+                onError={(e) => {
+                  // Hide image if it fails to load
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Call to Action Text and Button */}
+          <div className="space-y-4 opacity-90">
+            <h3 className="text-lg sm:text-xl font-semibold text-gray-900">
+              Lets start your marketing campaign..
+            </h3>
+            
+            {/* CTA Button */}
+            <div>
+              <Link
+                href="/app/create"
+                className="btn-primary inline-flex items-center justify-center min-h-[44px] animate-pulse-button"
+              >
+                <span>Create Content</span>
+              </Link>
+            </div>
+            
+            <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+              It takes just 2 minutes to turn your product into an ad.
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -86,7 +129,7 @@ export default function ProjectList({ projects }: ProjectListProps) {
                 Project Name
               </th>
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider hidden sm:table-cell">
-                Template
+                Content Type
               </th>
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                 Scenes
@@ -118,7 +161,7 @@ export default function ProjectList({ projects }: ProjectListProps) {
                     </Link>
                     <div className="text-xs text-gray-500 sm:hidden mt-1">
                       {project.template_name && (
-                        <span className="mr-2">Template: {project.template_name}</span>
+                        <span className="mr-2">Content Type: {project.template_name}</span>
                       )}
                       <span className="mr-2">Scenes: {sceneCount}</span>
                     </div>

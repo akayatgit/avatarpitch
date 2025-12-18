@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'AvatarPitch',
+  title: 'Hauloo',
   description: 'AI-powered video generation for your products',
 };
 

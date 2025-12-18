@@ -62,7 +62,7 @@ export default function TemplateForm({
   useEffect(() => {
     if (isEditMode && formRef.current) {
       const nameInput = formRef.current.querySelector('[name="name"]') as HTMLInputElement;
-      const descInput = formRef.current.querySelector('[name="description"]') as HTMLInputElement;
+      const descInput = formRef.current.querySelector('[name="description"]') as HTMLTextAreaElement;
       if (nameInput && initialName) nameInput.value = initialName;
       if (descInput && initialDescription !== undefined) descInput.value = initialDescription;
     }
@@ -119,7 +119,7 @@ export default function TemplateForm({
       <div className="space-y-5">
         <div>
           <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-            Template Name
+            Content Type Name
           </label>
           <input
             type="text"
@@ -135,13 +135,13 @@ export default function TemplateForm({
           <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
             Description (optional)
           </label>
-          <input
-            type="text"
+          <textarea
             id="description"
             name="description"
+            rows={4}
             defaultValue={initialDescription}
-            className="input-field min-h-[44px] touch-manipulation"
-            placeholder="Brief description of this template"
+            className="input-field min-h-[100px] touch-manipulation resize-y"
+            placeholder="Brief description of this content type"
           />
         </div>
         <div>
@@ -159,7 +159,7 @@ export default function TemplateForm({
         )}
         {success && (
           <div className="text-sm text-primary-600 bg-primary-50 p-4 rounded-xl border border-primary-200">
-            Template {isEditMode ? 'updated' : 'created'} successfully!
+            Content Type {isEditMode ? 'updated' : 'created'} successfully!
           </div>
         )}
         <button
@@ -167,7 +167,7 @@ export default function TemplateForm({
           disabled={loading}
           className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
         >
-          {loading ? (isEditMode ? 'Updating...' : 'Creating...') : (isEditMode ? 'Update Template' : 'Create Template')}
+          {loading ? (isEditMode ? 'Updating...' : 'Creating...') : (isEditMode ? 'Update Content Type' : 'Create Content Type')}
         </button>
       </div>
     </form>

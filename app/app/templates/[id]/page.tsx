@@ -47,9 +47,9 @@ export default async function EditTemplatePage({
   return (
     <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">
       <div className="mb-6 lg:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Edit Template: {template.name}</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Edit Content Type: {template.name}</h1>
         <p className="text-sm sm:text-base text-gray-600">
-          Update template configuration and settings
+          Update content type configuration and settings
         </p>
       </div>
 

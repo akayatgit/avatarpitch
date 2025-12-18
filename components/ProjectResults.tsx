@@ -254,7 +254,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
       <div className="bg-green-50 border border-green-200 rounded-xl p-4">
         <p className="text-sm sm:text-base text-green-800 font-medium">Project generated successfully!</p>
         <p className="text-xs sm:text-sm text-green-600 mt-1">
-          Template: {result.templateName}
+          Content Type: {result.templateName}
         </p>
       </div>
 

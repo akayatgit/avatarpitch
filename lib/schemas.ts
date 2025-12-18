@@ -187,10 +187,10 @@ export const CreateProjectFormSchema = z.object({
   templateId: z.string().uuid(),
   productName: z.string().min(1),
   productLink: z.string().url().optional().or(z.literal('')),
-  offer: z.string().min(1),
+  offer: z.string().optional().or(z.literal('')),
   features: z.array(z.string()).max(5).optional(),
   targetAudience: z.string().optional(),
-  platform: z.enum(['TikTok', 'Reels', 'Shorts']),
+  platform: z.union([z.enum(['TikTok', 'Reels', 'Shorts']), z.literal('')]).optional(),
 });
 
 export type CreateProjectFormData = z.infer<typeof CreateProjectFormSchema>;

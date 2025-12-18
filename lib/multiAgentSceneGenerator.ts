@@ -6,10 +6,10 @@ interface GenerateScenesInput {
   templateConfig: TemplateConfig;
   productName: string;
   productLink?: string;
-  offer: string;
+  offer?: string;
   features?: string[];
   targetAudience?: string;
-  platform: 'TikTok' | 'Reels' | 'Shorts';
+  platform?: 'TikTok' | 'Reels' | 'Shorts';
 }
 
 // Video language keywords to reject
@@ -91,10 +91,10 @@ export async function generateScenesWithAgents(
     input: {
       productName,
       productLink: productLink || 'Not provided',
-      offer,
+      offer: offer || 'Not specified',
       features: features || [],
       targetAudience: targetAudience || 'General audience',
-      platform,
+      platform: platform || 'General',
       templateOutput: {
         sceneCount,
         minSceneSeconds: templateConfig.output.minSceneSeconds,

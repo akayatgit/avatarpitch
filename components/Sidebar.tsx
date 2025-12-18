@@ -17,7 +17,7 @@ export default function Sidebar() {
 
   const navigation: NavItem[] = [
     { name: 'Home', href: '/app', icon: <Home className="w-5 h-5" /> },
-    { name: 'Templates', href: '/app/templates', icon: <FileText className="w-5 h-5" /> },
+    { name: 'Content Types', href: '/app/templates', icon: <FileText className="w-5 h-5" /> },
     { name: 'Agents', href: '/app/agents', icon: <Bot className="w-5 h-5" /> },
   ];
 
@@ -26,7 +26,7 @@ export default function Sidebar() {
       {/* Mobile Header */}
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-200 shadow-sm">
         <div className="flex items-center justify-between px-4 py-3">
-          <h1 className="text-xl font-bold text-gray-900">AvatarPitch</h1>
+          <h1 className="text-xl font-bold text-gray-900">Hauloo</h1>
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="p-2 rounded-xl text-gray-700 hover:bg-gray-100 active:bg-gray-200 transition-all duration-200 touch-manipulation"
@@ -57,7 +57,7 @@ export default function Sidebar() {
       >
         {/* Logo */}
         <div className="p-6 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900">AvatarPitch</h1>
+          <h1 className="text-xl font-bold text-gray-900">Hauloo</h1>
         </div>
 
         {/* Navigation */}

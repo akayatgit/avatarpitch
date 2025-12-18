@@ -129,10 +129,12 @@ export async function bootstrap() {
     }
 
     if (!templates || templates.length === 0) {
-      throw new Error('No templates found. Please run supabase.sql migration first.');
+      // Return success but with a flag indicating no templates
+      // This allows the app to continue functioning, and individual pages can handle the empty state
+      return { success: true, hasTemplates: false };
     }
 
-    return { success: true };
+    return { success: true, hasTemplates: true };
   } catch (error: any) {
     // Re-throw network errors with the special prefix
     if (error.message?.startsWith('NETWORK_ERROR:')) {
@@ -269,8 +271,10 @@ export async function generateProject(formData: FormData) {
   const formDataParsed = {
     ...rawData,
     productLink: rawData.productLink || undefined,
+    offer: rawData.offer || undefined,
     features: featuresArray,
     targetAudience: rawData.targetAudience || undefined,
+    platform: rawData.platform || undefined,
   };
 
   const validationResult = CreateProjectFormSchema.safeParse(formDataParsed);
@@ -301,10 +305,12 @@ export async function generateProject(formData: FormData) {
       templateConfig: configValidation.data,
       productName: validationResult.data.productName,
       productLink: validationResult.data.productLink,
-      offer: validationResult.data.offer,
+      offer: validationResult.data.offer || undefined,
       features: validationResult.data.features,
       targetAudience: validationResult.data.targetAudience,
-      platform: validationResult.data.platform,
+      platform: (validationResult.data.platform && validationResult.data.platform !== '') 
+        ? validationResult.data.platform as 'TikTok' | 'Reels' | 'Shorts'
+        : undefined,
     });
 
     // Mock video URL (stable sample)
@@ -320,10 +326,10 @@ export async function generateProject(formData: FormData) {
         template_name: template.name,
         product_name: validationResult.data.productName,
         product_link: validationResult.data.productLink || null,
-        offer: validationResult.data.offer,
+        offer: validationResult.data.offer || '',
         features: validationResult.data.features || null,
         target_audience: validationResult.data.targetAudience || null,
-        platform: validationResult.data.platform,
+        platform: validationResult.data.platform || '',
         scenes: generated.scenes,
         rendering_spec: generated.renderingSpec,
         video_url: videoUrl,

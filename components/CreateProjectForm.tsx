@@ -208,11 +208,14 @@ export default function CreateProjectForm({ templates, generateProject }: Create
   }
 
   return (
-    <div className="card">
-      <form id="project-form" onSubmit={handleSubmit} className="space-y-5">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+      {/* Form Section */}
+      <div className="lg:col-span-2">
+        <div className="card">
+          <form id="project-form" onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label htmlFor="templateId" className="block text-sm font-medium text-gray-700 mb-2">
-            Template *
+            Content Type *
           </label>
           <select
             id="templateId"
@@ -222,7 +225,7 @@ export default function CreateProjectForm({ templates, generateProject }: Create
             onChange={(e) => setSelectedTemplateId(e.target.value)}
             className="input-field min-h-[44px] touch-manipulation"
           >
-            <option value="">Select template...</option>
+            <option value="">Select content type...</option>
             {templates.map((template) => (
               <option key={template.id} value={template.id}>
                 {template.name}
@@ -260,13 +263,12 @@ export default function CreateProjectForm({ templates, generateProject }: Create
 
         <div>
           <label htmlFor="offer" className="block text-sm font-medium text-gray-700 mb-2">
-            Offer *
+            Offer (optional)
           </label>
           <input
             type="text"
             id="offer"
             name="offer"
-            required
             className="input-field min-h-[44px] touch-manipulation"
             placeholder="e.g., 20% off, Free shipping, Buy 2 Get 1"
           />
@@ -301,12 +303,11 @@ export default function CreateProjectForm({ templates, generateProject }: Create
 
         <div>
           <label htmlFor="platform" className="block text-sm font-medium text-gray-700 mb-2">
-            Platform *
+            Platform (optional)
           </label>
           <select
             id="platform"
             name="platform"
-            required
             className="input-field min-h-[44px] touch-manipulation"
           >
             <option value="">Select platform...</option>
@@ -343,7 +344,52 @@ export default function CreateProjectForm({ templates, generateProject }: Create
         >
           {loading ? 'Generating...' : 'Generate Project'}
         </button>
-      </form>
+          </form>
+        </div>
+      </div>
+
+      {/* Information Section */}
+      <div className="lg:col-span-1">
+        <div className="bg-gray-100 rounded-xl p-6 sticky top-6">
+          <h3 className="text-lg font-semibold text-gray-500 mb-4">Form Guide</h3>
+          <div className="space-y-4 text-sm text-gray-500">
+            <div>
+              <h4 className="font-medium text-gray-500 mb-1">Content Type</h4>
+              <p className="text-sm text-gray-400">Select a pre-configured content type that defines the style and structure of your video ad.</p>
+            </div>
+            
+            <div>
+              <h4 className="font-medium text-gray-500 mb-1">Product Name</h4>
+              <p className="text-sm text-gray-400">Enter the name of your product. This will be featured prominently in your ad.</p>
+            </div>
+            
+            <div>
+              <h4 className="font-medium text-gray-500 mb-1">Product Link</h4>
+              <p className="text-sm text-gray-400">Optional. Add a URL where customers can purchase or learn more about your product.</p>
+            </div>
+            
+            <div>
+              <h4 className="font-medium text-gray-500 mb-1">Offer</h4>
+              <p className="text-sm text-gray-400">Specify your promotion or discount. Examples: "20% off", "Free shipping", "Buy 2 Get 1".</p>
+            </div>
+            
+            <div>
+              <h4 className="font-medium text-gray-500 mb-1">Features</h4>
+              <p className="text-sm text-gray-400">List key product features separated by commas. Maximum 5 features recommended.</p>
+            </div>
+            
+            <div>
+              <h4 className="font-medium text-gray-500 mb-1">Target Audience</h4>
+              <p className="text-sm text-gray-400">Describe your ideal customer. This helps AI tailor the ad content and messaging.</p>
+            </div>
+            
+            <div>
+              <h4 className="font-medium text-gray-500 mb-1">Platform</h4>
+              <p className="text-sm text-gray-400">Choose the social media platform where your ad will be published. Each platform has different format requirements.</p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
