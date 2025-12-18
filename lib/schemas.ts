@@ -1,6 +1,265 @@
 import { z } from 'zod';
 
-// Agent definition schema (updated to support shared state workflow)
+/**
+ * ============================
+ * CONTENT TYPE DEFINITION SCHEMAS
+ * ============================
+ */
+
+// Output Contract Schemas
+const RequiredOutputsSchema = z.object({
+  scenes: z.literal(true),
+  imagePromptPerScene: z.literal(true),
+  textOverlaySuggestions: z.boolean(),
+  thumbnailPrompt: z.boolean(),
+});
+
+const CameraSchema = z.object({
+  shot: z.string().optional(),
+  lens: z.string().optional(),
+  movement: z.string().optional(),
+}).optional();
+
+const EnvironmentSchema = z.object({
+  location: z.string().optional(),
+  timeOfDay: z.string().optional(),
+  lighting: z.string().optional(),
+}).optional();
+
+const CharacterSchema = z.object({
+  role: z.string(),
+  wardrobeNotes: z.string().optional(),
+});
+
+const OnScreenTextSchema = z.object({
+  text: z.string().optional(),
+  styleNotes: z.string().optional(),
+}).optional();
+
+const SceneSchemaV1 = z.object({
+  id: z.string(),
+  purpose: z.string(), // decided dynamically by AI
+  imagePrompt: z.string(),
+  negativePrompt: z.string().optional(),
+  camera: CameraSchema,
+  environment: EnvironmentSchema,
+  characters: z.array(CharacterSchema).optional(),
+  props: z.array(z.string()).optional(),
+  onScreenText: OnScreenTextSchema,
+  compositionNotes: z.string().optional(),
+});
+
+const OutputContractSchema = z.object({
+  format: z.literal("storyboard_v1"),
+  requiredOutputs: RequiredOutputsSchema,
+  sceneSchema: z.object({
+    id: z.string(),
+    purpose: z.string(),
+    imagePrompt: z.string(),
+    negativePrompt: z.string().optional(),
+    camera: CameraSchema,
+    environment: EnvironmentSchema,
+    characters: z.array(CharacterSchema).optional(),
+    props: z.array(z.string()).optional(),
+    onScreenText: OnScreenTextSchema,
+    compositionNotes: z.string().optional(),
+  }),
+  globalDefaults: z.object({
+    durationPerSceneSeconds: z.number().int().positive(),
+    allowedAspectRatios: z.array(z.enum(["9:16", "1:1", "16:9"])),
+    defaultAspectRatio: z.enum(["9:16", "1:1", "16:9"]),
+    visualStylePreset: z.string(),
+    defaultLanguage: z.string(),
+  }),
+});
+
+// Scene Generation Policy Schema
+const SceneGenerationPolicySchema = z.object({
+  minScenes: z.number().int().positive(),
+  maxScenes: z.number().int().positive(),
+  rules: z.object({
+    mustStartStrong: z.boolean().optional(),
+    mustEndWithClosure: z.boolean().optional(),
+    avoidRepetition: z.boolean().optional(),
+    platformAwareOrdering: z.boolean().optional(),
+  }).optional(),
+});
+
+// Inputs Contract Schema
+const InputFieldSchema = z.object({
+  key: z.string(), // dot-notation allowed
+  label: z.string(),
+  type: z.enum(["string", "enum", "list", "boolean", "number"]),
+  required: z.boolean(),
+  options: z.array(z.string()).optional(),
+  maxItems: z.number().int().positive().optional(),
+  maxLength: z.number().int().positive().optional(),
+  helpText: z.string().optional(),
+});
+
+const ConditionalLogicSchema = z.object({
+  if: z.object({
+    field: z.string(),
+    equals: z.any(),
+  }),
+  then: z.object({
+    require: z.array(z.string()),
+  }),
+});
+
+const InputsContractSchema = z.object({
+  fields: z.array(InputFieldSchema),
+  conditionalLogic: z.array(ConditionalLogicSchema).optional(),
+});
+
+// Prompting Schema
+const SafetyRulesSchema = z.object({
+  banCopyrightedCharacters: z.boolean().optional(),
+  banCompetitorBrands: z.boolean().optional(),
+  noMedicalClaims: z.boolean().optional(),
+}).optional();
+
+// Agent Workflow Schema (for prompting.agentWorkflow)
+const AgentWorkflowForPromptingSchema = z.object({
+  agents: z.array(z.object({
+    id: z.string(),
+    role: z.string(),
+    name: z.string(),
+    systemPrompt: z.string().optional(),
+    prompt: z.string().optional(),
+    temperature: z.number().optional(),
+    order: z.number(),
+    inputFrom: z.array(z.string()).optional(),
+    outputTo: z.array(z.string()).optional(),
+    readsFrom: z.array(z.string()).optional(),
+    writesTo: z.array(z.string()).optional(),
+  }).passthrough()),
+  executionOrder: z.enum(['sequential', 'parallel', 'custom']),
+}).optional();
+
+const PromptingSchema = z.object({
+  systemPromptTemplate: z.string(),
+  agents: z.union([
+    z.array(z.string()),
+    z.array(z.object({
+      id: z.string(),
+      role: z.string(),
+      name: z.string(),
+    }).passthrough())
+  ]).optional(),
+  agentWorkflow: AgentWorkflowForPromptingSchema,
+  safetyRules: SafetyRulesSchema,
+}).passthrough();
+
+// Content Type Definition Schema
+export const ContentTypeDefinitionSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  category: z.enum(["marketing", "entertainment", "education", "review", "story"]),
+  description: z.string().optional(),
+  version: z.string(),
+  outputContract: OutputContractSchema,
+  sceneGenerationPolicy: SceneGenerationPolicySchema,
+  inputsContract: InputsContractSchema,
+  prompting: PromptingSchema,
+});
+
+export type ContentTypeDefinition = z.infer<typeof ContentTypeDefinitionSchema>;
+export type SceneSchemaV1Type = z.infer<typeof SceneSchemaV1>;
+
+/**
+ * ============================
+ * CONTENT CREATION REQUEST SCHEMAS
+ * ============================
+ */
+
+// Product Schema (for subject.type === "product")
+const ProductSchema = z.object({
+  category: z.string().optional(),
+  material: z.string().optional(),
+  fit: z.string().optional(),
+  colors: z.array(z.string()).optional(),
+  keyPoints: z.array(z.string()).optional(),
+}).optional();
+
+// Story Schema (for subject.type === "story")
+const StorySchema = z.object({
+  characters: z.array(z.string()).optional(),
+  setting: z.string().optional(),
+  theme: z.string().optional(),
+  conflict: z.string().optional(),
+}).optional();
+
+// Subject Schema
+const SubjectSchema = z.object({
+  type: z.enum(["product", "person", "place", "service", "story", "idea"]),
+  name: z.string(),
+  product: ProductSchema,
+  story: StorySchema,
+});
+
+// Offer Schema
+const OfferSchema = z.object({
+  text: z.string().optional(),
+}).optional();
+
+// Audience Schema
+const AudienceSchema = z.object({
+  description: z.string().optional(),
+  locale: z.string().optional(),
+}).optional();
+
+// Brand/Creator Schema
+const BrandCreatorSchema = z.object({
+  brandName: z.string().optional(),
+  creatorStyle: z.string().optional(),
+  visualGuidelines: z.array(z.string()).optional(),
+  forbiddenWords: z.array(z.string()).optional(),
+  brandSafetyLevel: z.enum(["safe", "edgy", "unrestricted"]).optional(),
+}).optional();
+
+// Content Creation Request Inputs Schema
+const ContentCreationInputsSchema = z.object({
+  goal: z.enum(["sell", "explain", "entertain", "inform", "review", "story"]),
+  platform: z.enum(["reels", "shorts", "tiktok", "youtube", "other"]),
+  language: z.string().optional(),
+  tone: z.array(z.string()).optional(),
+  subject: SubjectSchema,
+  offer: OfferSchema,
+  audience: AudienceSchema,
+  brandCreator: BrandCreatorSchema,
+});
+
+// Content Creation Request Schema
+export const ContentCreationRequestSchema = z.object({
+  id: z.string().uuid(),
+  contentTypeId: z.string().uuid(),
+  inputs: ContentCreationInputsSchema,
+});
+
+export type ContentCreationRequest = z.infer<typeof ContentCreationRequestSchema>;
+
+/**
+ * ============================
+ * GENERATED OUTPUT SCHEMAS
+ * ============================
+ */
+
+// Generated Scene (matches storyboard_v1 format)
+export const GeneratedSceneSchema = SceneSchemaV1;
+
+// Generated Output Schema
+export const GeneratedOutputSchema = z.object({
+  format: z.literal("storyboard_v1"),
+  scenes: z.array(GeneratedSceneSchema),
+  textOverlaySuggestions: z.array(z.string()).optional(),
+  thumbnailPrompt: z.string().optional(),
+});
+
+export type GeneratedOutput = z.infer<typeof GeneratedOutputSchema>;
+export type GeneratedScene = z.infer<typeof GeneratedSceneSchema>;
+
+// Legacy schemas for backward compatibility (can be removed later)
 export const AgentDefinitionSchema = z.object({
   id: z.string(),
   role: z.union([
@@ -14,17 +273,17 @@ export const AgentDefinitionSchema = z.object({
       'brand_strategist',
       'visual_stylist',
     ]),
-    z.string(), // Allow custom roles
+    z.string(),
   ]),
   name: z.string(),
   systemPrompt: z.string().optional(),
-  prompt: z.string().optional(), // Task-specific prompt
+  prompt: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   order: z.number().int().positive(),
-  inputFrom: z.array(z.string()).optional(), // Legacy: agent IDs
-  outputTo: z.array(z.string()).optional(), // Legacy: agent IDs
-  readsFrom: z.array(z.string()).optional(), // New: shared state keys to read
-  writesTo: z.array(z.string()).optional(), // New: shared state keys to write
+  inputFrom: z.array(z.string()).optional(),
+  outputTo: z.array(z.string()).optional(),
+  readsFrom: z.array(z.string()).optional(),
+  writesTo: z.array(z.string()).optional(),
 }).passthrough();
 
 export const AgentWorkflowSchema = z.object({
@@ -32,166 +291,5 @@ export const AgentWorkflowSchema = z.object({
   executionOrder: z.enum(['sequential', 'parallel', 'custom']),
 });
 
-// Template config schema (updated to support agent workflows and image-first generation)
-export const TemplateConfigSchema = z.object({
-  version: z.number(),
-  output: z.object({
-    sceneCount: z.number().int().positive(),
-    minSceneSeconds: z.number().int().positive().optional(),
-    maxSceneSeconds: z.number().int().positive().optional(),
-    aspectRatio: z.string(),
-    style: z.string(),
-    renderTarget: z.enum(['image_first_frame', 'video']).optional().default('video'),
-    limits: z.object({
-      imagePromptMaxChars: z.number().int().positive(),
-      cameraMaxChars: z.number().int().positive(),
-      negativesMaxChars: z.number().int().positive(),
-      maxSentencesImagePrompt: z.number().int().positive(),
-      maxWordsOnScreenText: z.number().int().positive(),
-    }).passthrough().optional(),
-    cameraPresets: z.array(z.string()).optional(),
-  }).passthrough(),
-  workflow: z.union([
-    // Legacy workflow format – passthrough so we can attach agentWorkflow without losing it
-    z
-      .object({
-        systemPrompt: z.string(),
-        sceneBlueprint: z.array(
-          z.object({
-            type: z.string(),
-            goal: z.string(),
-          }).passthrough()
-        ).optional(),
-        shotLibrary: z.array(
-          z.object({
-            type: z.string(),
-            purpose: z.string(),
-          })
-        ).optional(),
-        constraints: z.array(z.string()),
-      })
-      .passthrough(),
-
-    // New agent-based workflow – sceneBlueprint/shotLibrary / constraints optional
-    z
-      .object({
-        agentWorkflow: AgentWorkflowSchema,
-        sceneBlueprint: z
-          .array(
-            z.object({
-              type: z.string(),
-              goal: z.string(),
-              agentIds: z.array(z.string()).optional(), // Which agents work on this scene
-            }).passthrough()
-          )
-          .optional(),
-        shotLibrary: z
-          .array(
-            z.object({
-              type: z.string(),
-              purpose: z.string(),
-            })
-          )
-          .optional(),
-        constraints: z.array(z.string()).optional(),
-        finalAssembly: z
-          .object({
-            agentId: z.string(), // Agent that assembles final scenes
-          })
-          .optional(),
-      })
-      .passthrough(),
-
-    // Agent workflow only (minimal) – also passthrough to avoid stripping other fields
-    z
-      .object({
-        agentWorkflow: AgentWorkflowSchema,
-      })
-      .passthrough(),
-  ]),
-}).passthrough();
-
-export type TemplateConfig = z.infer<typeof TemplateConfigSchema>;
 export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>;
 export type AgentWorkflow = z.infer<typeof AgentWorkflowSchema>;
-
-// Scene schema (updated for image-first generation)
-export const SceneSchema = z.object({
-  index: z.number().int().positive(),
-  shotType: z.string(),
-  camera: z.string(),
-  imagePrompt: z.string(),
-  negativePrompt: z.string().optional(),
-  onScreenText: z.string().optional(),
-  notes: z.string().optional(),
-  durationSeconds: z.number().int().positive().optional(), // Optional for image-first
-  agentContributions: z.array(z.object({
-    agentId: z.string(),
-    agentName: z.string(),
-    agentRole: z.string(),
-    order: z.number(),
-    contribution: z.any(),
-    writesTo: z.array(z.string()),
-  })).optional(),
-  finalAssembler: z.object({
-    agentId: z.string(),
-    agentName: z.string(),
-    agentRole: z.string(),
-    sharedStateUsed: z.any(),
-  }).optional(),
-});
-
-// Rendering spec schema (updated for image-first)
-export const RenderingSpecSchema = z.object({
-  aspectRatio: z.string(),
-  style: z.string(),
-  imageModelHint: z.string().optional(),
-  colorGrade: z.string().optional(),
-  lightingMood: z.string().optional(),
-  musicMood: z.string().optional(), // Legacy support
-  transitions: z.string().optional(), // Legacy support
-});
-
-// Generated project output schema (updated for image-first)
-export const GeneratedProjectSchema = z.object({
-  scenes: z.array(SceneSchema),
-  renderingSpec: RenderingSpecSchema,
-}).refine(
-  (data) => {
-    // Validate scene count matches expected (usually 8 for image-first)
-    // This will be enforced by the generator
-    return data.scenes.length > 0;
-  },
-  { message: "Scenes array must not be empty" }
-).refine(
-  (data) => {
-    // Scene 1 must be hook
-    return data.scenes[0]?.shotType === 'hook';
-  },
-  { message: "First scene must have shotType 'hook'" }
-).refine(
-  (data) => {
-    // All indices must be unique and sequential
-    const indices = data.scenes.map(s => s.index).sort((a, b) => a - b);
-    return indices.every((idx, i) => idx === i + 1);
-  },
-  { message: "Scene indices must be unique and sequential starting from 1" }
-);
-
-export type GeneratedProject = z.infer<typeof GeneratedProjectSchema>;
-export type Scene = z.infer<typeof SceneSchema>;
-export type RenderingSpec = z.infer<typeof RenderingSpecSchema>;
-
-// Form input schemas
-export const CreateProjectFormSchema = z.object({
-  templateId: z.string().uuid(),
-  productName: z.string().min(1),
-  productLink: z.string().url().optional().or(z.literal('')),
-  offer: z.string().optional().or(z.literal('')),
-  features: z.array(z.string()).max(5).optional(),
-  targetAudience: z.string().optional(),
-  platform: z.union([z.enum(['TikTok', 'Reels', 'Shorts']), z.literal('')]).optional(),
-});
-
-export type CreateProjectFormData = z.infer<typeof CreateProjectFormSchema>;
-

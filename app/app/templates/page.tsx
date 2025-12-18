@@ -11,8 +11,8 @@ export const revalidate = 0;
 
 export default async function TemplatesPage() {
   const { data: templates, error } = await supabaseAdmin
-    .from('templates')
-    .select('id, name, description, created_at, config')
+    .from('content_types')
+    .select('id, name, description, category, version, created_at')
     .order('created_at', { ascending: false });
 
   if (error && isSupabaseNetworkError(error)) {

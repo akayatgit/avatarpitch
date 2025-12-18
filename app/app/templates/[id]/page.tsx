@@ -16,26 +16,29 @@ export default async function EditTemplatePage({
   const resolvedParams = await params;
   const templateId = resolvedParams.id;
   
-  const { data: template, error } = await supabaseAdmin
-    .from('templates')
-    .select('id, name, description, config')
+  const { data: contentType, error } = await supabaseAdmin
+    .from('content_types')
+    .select('*')
     .eq('id', templateId)
     .single();
 
-  if (!template || error) {
-    console.error('Template fetch error:', error);
+  if (!contentType || error) {
+    console.error('Content type fetch error:', error);
     notFound();
   }
 
-  // Ensure config is parsed if it's a string (Supabase JSONB should be auto-parsed, but handle both cases)
-  let config = template.config;
-  if (typeof config === 'string') {
-    try {
-      config = JSON.parse(config);
-    } catch (e) {
-      console.error('Failed to parse template config:', e);
-    }
-  }
+  // Convert database structure to ContentTypeDefinition format
+  const initialData = {
+    id: contentType.id,
+    name: contentType.name,
+    category: contentType.category,
+    description: contentType.description,
+    version: contentType.version,
+    outputContract: contentType.output_contract,
+    sceneGenerationPolicy: contentType.scene_generation_policy,
+    inputsContract: contentType.inputs_contract,
+    prompting: contentType.prompting,
+  };
 
   async function handleUpdate(formData: FormData) {
     'use server';
@@ -47,7 +50,7 @@ export default async function EditTemplatePage({
   return (
     <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">
       <div className="mb-6 lg:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Edit Content Type: {template.name}</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Edit Content Type: {contentType.name}</h1>
         <p className="text-sm sm:text-base text-gray-600">
           Update content type configuration and settings
         </p>
@@ -57,9 +60,7 @@ export default async function EditTemplatePage({
         <TemplateForm
           updateTemplate={handleUpdate}
           templateId={templateId}
-          initialName={template.name}
-          initialDescription={template.description || ''}
-          initialConfig={config}
+          initialData={initialData}
         />
       </div>
     </div>

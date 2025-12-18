@@ -2,8 +2,8 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import NetworkError from '@/components/NetworkError';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 import { generateProject } from '../actions';
-import CreateProjectForm from '@/components/CreateProjectForm';
-import ProjectResults from '@/components/ProjectResults';
+import CreateProjectForm from '@/components/content-creation/generation/CreateProjectForm';
+import ProjectResults from '@/components/content-creation/ProjectResults';
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,7 @@ export const revalidate = 0;
 export default async function CreateProjectPage() {
   try {
     const { data: templates, error: templatesError } = await supabaseAdmin
-      .from('templates')
+      .from('content_types')
       .select('id, name')
       .order('name', { ascending: true });
 

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 import NetworkError from '@/components/NetworkError';
-import ProjectResultsClient from '@/components/ProjectResultsClient';
+import ProjectResultsClient from '@/components/content-creation/ProjectResultsClient';
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';

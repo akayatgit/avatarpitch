@@ -1,9 +1,11 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { TemplateConfigSchema, CreateProjectFormSchema } from '@/lib/schemas';
-import { generateScenes } from '@/lib/sceneAgent';
+import { ContentTypeDefinitionSchema, ContentCreationRequestSchema } from '@/lib/schemas';
+import { generateContent } from '@/lib/generation/contentGenerator';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 
 // Agent CRUD operations
@@ -113,28 +115,28 @@ export async function deleteAgent(formData: FormData) {
 
 export async function bootstrap() {
   try {
-    // Ensure templates exist (they should be seeded via SQL, but check anyway)
-    const { data: templates, error: templatesError } = await supabaseAdmin
-      .from('templates')
+    // Ensure content types exist (they should be seeded via SQL, but check anyway)
+    const { data: contentTypes, error: contentTypesError } = await supabaseAdmin
+      .from('content_types')
       .select('id')
       .limit(1);
 
     // Check for network errors first
-    if (templatesError && isSupabaseNetworkError(templatesError)) {
+    if (contentTypesError && isSupabaseNetworkError(contentTypesError)) {
       throw new Error('NETWORK_ERROR: No internet connection. Please check your network and try again.');
     }
 
-    if (templatesError) {
-      throw templatesError;
+    if (contentTypesError) {
+      throw contentTypesError;
     }
 
-    if (!templates || templates.length === 0) {
-      // Return success but with a flag indicating no templates
+    if (!contentTypes || contentTypes.length === 0) {
+      // Return success but with a flag indicating no content types
       // This allows the app to continue functioning, and individual pages can handle the empty state
-      return { success: true, hasTemplates: false };
+      return { success: true, hasContentTypes: false };
     }
 
-    return { success: true, hasTemplates: true };
+    return { success: true, hasContentTypes: true };
   } catch (error: any) {
     // Re-throw network errors with the special prefix
     if (error.message?.startsWith('NETWORK_ERROR:')) {
@@ -155,35 +157,64 @@ export async function bootstrap() {
 export async function createTemplate(formData: FormData) {
   const name = formData.get('name') as string;
   const description = formData.get('description') as string;
-  const configStr = formData.get('config') as string;
+  const category = formData.get('category') as string;
+  const version = formData.get('version') as string;
+  const outputContractStr = formData.get('outputContract') as string;
+  const sceneGenerationPolicyStr = formData.get('sceneGenerationPolicy') as string;
+  const inputsContractStr = formData.get('inputsContract') as string;
+  const promptingStr = formData.get('prompting') as string;
 
   if (!name || name.trim().length === 0) {
-    return { error: 'Template name is required' };
+    return { error: 'Content type name is required' };
   }
 
-  if (!configStr || configStr.trim().length === 0) {
-    return { error: 'Template config is required' };
+  if (!category || !version || !outputContractStr || !sceneGenerationPolicyStr || !inputsContractStr || !promptingStr) {
+    return { error: 'All required fields must be provided' };
   }
 
-  let config;
+  let outputContract, sceneGenerationPolicy, inputsContract, prompting;
   try {
-    config = JSON.parse(configStr);
+    if (!outputContractStr || !sceneGenerationPolicyStr || !inputsContractStr || !promptingStr) {
+      return { error: 'All required JSON fields must be provided' };
+    }
+    outputContract = JSON.parse(outputContractStr);
+    sceneGenerationPolicy = JSON.parse(sceneGenerationPolicyStr);
+    inputsContract = JSON.parse(inputsContractStr);
+    prompting = JSON.parse(promptingStr);
   } catch (e) {
-    return { error: 'Invalid JSON in config field' };
+    return { error: `Invalid JSON in one or more fields: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
+
+  // Build ContentTypeDefinition object
+  const contentTypeData = {
+    id: randomUUID(), // Generate UUID for validation (database will use its own if needed)
+    name: name.trim(),
+    category: category as any,
+    description: description?.trim() || undefined,
+    version: version.trim(),
+    outputContract,
+    sceneGenerationPolicy,
+    inputsContract,
+    prompting,
+  };
 
   // Validate with Zod
-  const validationResult = TemplateConfigSchema.safeParse(config);
+  const validationResult = ContentTypeDefinitionSchema.safeParse(contentTypeData);
   if (!validationResult.success) {
-    return { error: `Config validation failed: ${validationResult.error.message}` };
+    return { error: `Validation failed: ${validationResult.error.message}` };
   }
 
   const { data, error } = await supabaseAdmin
-    .from('templates')
+    .from('content_types')
     .insert({
-      name: name.trim(),
-      description: description?.trim() || null,
-      config: validationResult.data,
+      name: validationResult.data.name,
+      category: validationResult.data.category,
+      description: validationResult.data.description || null,
+      version: validationResult.data.version,
+      output_contract: validationResult.data.outputContract,
+      scene_generation_policy: validationResult.data.sceneGenerationPolicy,
+      inputs_contract: validationResult.data.inputsContract,
+      prompting: validationResult.data.prompting,
     })
     .select()
     .single();
@@ -200,39 +231,69 @@ export async function updateTemplate(formData: FormData) {
   const templateId = formData.get('templateId') as string;
   const name = formData.get('name') as string;
   const description = formData.get('description') as string;
-  const configStr = formData.get('config') as string;
+  const category = formData.get('category') as string;
+  const version = formData.get('version') as string;
+  const outputContractStr = formData.get('outputContract') as string;
+  const sceneGenerationPolicyStr = formData.get('sceneGenerationPolicy') as string;
+  const inputsContractStr = formData.get('inputsContract') as string;
+  const promptingStr = formData.get('prompting') as string;
 
   if (!templateId || templateId.trim().length === 0) {
-    return { error: 'Template ID is required' };
+    return { error: 'Content type ID is required' };
   }
 
   if (!name || name.trim().length === 0) {
-    return { error: 'Template name is required' };
+    return { error: 'Content type name is required' };
   }
 
-  if (!configStr || configStr.trim().length === 0) {
-    return { error: 'Template config is required' };
+  if (!category || !version || !outputContractStr || !sceneGenerationPolicyStr || !inputsContractStr || !promptingStr) {
+    return { error: 'All required fields must be provided' };
   }
 
-  let config;
+  let outputContract, sceneGenerationPolicy, inputsContract, prompting;
   try {
-    config = JSON.parse(configStr);
+    if (!outputContractStr || !sceneGenerationPolicyStr || !inputsContractStr || !promptingStr) {
+      return { error: 'All required JSON fields must be provided' };
+    }
+    outputContract = JSON.parse(outputContractStr);
+    sceneGenerationPolicy = JSON.parse(sceneGenerationPolicyStr);
+    inputsContract = JSON.parse(inputsContractStr);
+    prompting = JSON.parse(promptingStr);
   } catch (e) {
-    return { error: 'Invalid JSON in config field' };
+    return { error: `Invalid JSON in one or more fields: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
+
+  // Build ContentTypeDefinition object
+  const contentTypeData = {
+    id: templateId,
+    name: name.trim(),
+    category: category as any,
+    description: description?.trim() || undefined,
+    version: version.trim(),
+    outputContract,
+    sceneGenerationPolicy,
+    inputsContract,
+    prompting,
+  };
 
   // Validate with Zod
-  const validationResult = TemplateConfigSchema.safeParse(config);
+  const validationResult = ContentTypeDefinitionSchema.safeParse(contentTypeData);
   if (!validationResult.success) {
-    return { error: `Config validation failed: ${validationResult.error.message}` };
+    return { error: `Validation failed: ${validationResult.error.message}` };
   }
 
   const { data, error } = await supabaseAdmin
-    .from('templates')
+    .from('content_types')
     .update({
-      name: name.trim(),
-      description: description?.trim() || null,
-      config: validationResult.data,
+      name: validationResult.data.name,
+      category: validationResult.data.category,
+      description: validationResult.data.description || null,
+      version: validationResult.data.version,
+      output_contract: validationResult.data.outputContract,
+      scene_generation_policy: validationResult.data.sceneGenerationPolicy,
+      inputs_contract: validationResult.data.inputsContract,
+      prompting: validationResult.data.prompting,
+      updated_at: new Date().toISOString(),
     })
     .eq('id', templateId)
     .select()
@@ -247,115 +308,218 @@ export async function updateTemplate(formData: FormData) {
   return { success: true, data };
 }
 
+// Helper function to build dynamic Zod schema from inputsContract
+function buildInputsSchema(inputsContract: { fields: Array<{
+  key: string;
+  type: 'string' | 'number' | 'boolean' | 'enum' | 'list';
+  required: boolean;
+  options?: string[];
+  maxLength?: number;
+  maxItems?: number;
+}> }) {
+  const schemaShape: Record<string, any> = {};
+  
+  for (const field of inputsContract.fields) {
+    let fieldSchema: any;
+    
+    switch (field.type) {
+      case 'string':
+        fieldSchema = z.string();
+        if (field.maxLength) {
+          fieldSchema = fieldSchema.max(field.maxLength);
+        }
+        break;
+      case 'number':
+        fieldSchema = z.number();
+        break;
+      case 'boolean':
+        fieldSchema = z.boolean();
+        break;
+      case 'enum':
+        if (field.options && field.options.length > 0) {
+          fieldSchema = z.enum(field.options as [string, ...string[]]);
+        } else {
+          fieldSchema = z.string(); // Fallback if no options
+        }
+        break;
+      case 'list':
+        fieldSchema = z.array(z.string());
+        if (field.maxItems) {
+          fieldSchema = fieldSchema.max(field.maxItems);
+        }
+        break;
+      default:
+        fieldSchema = z.any();
+    }
+    
+    // Handle nested keys (dot notation)
+    const keys = field.key.split('.');
+    let current = schemaShape;
+    for (let i = 0; i < keys.length - 1; i++) {
+      const key = keys[i];
+      if (!current[key]) {
+        current[key] = {};
+      }
+      current = current[key];
+    }
+    
+    const lastKey = keys[keys.length - 1];
+    if (field.required) {
+      current[lastKey] = fieldSchema;
+    } else {
+      current[lastKey] = fieldSchema.optional();
+    }
+  }
+  
+  // Build nested object schema recursively
+  function buildNestedSchema(obj: Record<string, any>): z.ZodTypeAny {
+    const shape: Record<string, z.ZodTypeAny> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value && typeof value === 'object' && !('_def' in value)) {
+        // It's a nested object
+        shape[key] = z.object(buildNestedSchema(value));
+      } else {
+        // It's a Zod schema
+        shape[key] = value;
+      }
+    }
+    return z.object(shape);
+  }
+  
+  return buildNestedSchema(schemaShape);
+}
+
 export async function generateProject(formData: FormData) {
-  // Parse and validate form data
-  const rawData = {
-    templateId: formData.get('templateId') as string,
-    productName: formData.get('productName') as string,
-    productLink: formData.get('productLink') as string,
-    offer: formData.get('offer') as string,
-    features: formData.get('features') as string,
-    targetAudience: formData.get('targetAudience') as string,
-    platform: formData.get('platform') as 'TikTok' | 'Reels' | 'Shorts',
-  };
+  const contentTypeId = formData.get('contentTypeId') as string;
+  const inputsStr = formData.get('inputs') as string;
 
-  // Parse features array (comma-separated)
-  const featuresArray = rawData.features
-    ? rawData.features
-        .split(',')
-        .map((f: string) => f.trim())
-        .filter((f: string) => f.length > 0)
-        .slice(0, 5)
-    : undefined;
-
-  const formDataParsed = {
-    ...rawData,
-    productLink: rawData.productLink || undefined,
-    offer: rawData.offer || undefined,
-    features: featuresArray,
-    targetAudience: rawData.targetAudience || undefined,
-    platform: rawData.platform || undefined,
-  };
-
-  const validationResult = CreateProjectFormSchema.safeParse(formDataParsed);
-  if (!validationResult.success) {
-    return { error: `Validation failed: ${validationResult.error.message}` };
+  if (!contentTypeId) {
+    return { error: 'Content type ID is required' };
   }
 
-  // Fetch template directly
-  const { data: template, error: templateError } = await supabaseAdmin
-    .from('templates')
-    .select('id, name, config')
-    .eq('id', validationResult.data.templateId)
+  if (!inputsStr) {
+    return { error: 'Inputs are required' };
+  }
+
+  let inputs;
+  try {
+    if (!inputsStr) {
+      return { error: 'Inputs field is required' };
+    }
+    inputs = JSON.parse(inputsStr);
+  } catch (e) {
+    return { error: `Invalid JSON in inputs field: ${e instanceof Error ? e.message : 'Unknown error'}` };
+  }
+
+  // Fetch content type FIRST to build dynamic schema
+  const { data: contentTypeData, error: contentTypeError } = await supabaseAdmin
+    .from('content_types')
+    .select('*')
+    .eq('id', contentTypeId)
     .single();
 
-  if (templateError || !template) {
-    return { error: 'Template not found' };
+  if (contentTypeError || !contentTypeData) {
+    return { error: 'Content type not found' };
   }
 
-  // Validate template config
-  const configValidation = TemplateConfigSchema.safeParse(template.config);
-  if (!configValidation.success) {
-    return { error: 'Invalid template config' };
+  // Handle potential JSON string parsing
+  let inputsContract = contentTypeData.inputs_contract;
+  if (typeof inputsContract === 'string') {
+    try {
+      inputsContract = JSON.parse(inputsContract);
+    } catch (e) {
+      return { error: 'Invalid inputs contract in content type' };
+    }
   }
 
-  // Generate scenes
+  // Build dynamic schema from inputsContract
+  if (inputsContract?.fields && inputsContract.fields.length > 0) {
+    try {
+      const dynamicInputsSchema = buildInputsSchema(inputsContract);
+      const validationResult = dynamicInputsSchema.safeParse(inputs);
+      if (!validationResult.success) {
+        return { error: `Validation failed: ${validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}` };
+      }
+    } catch (schemaError) {
+      console.error('Error building dynamic schema:', schemaError);
+      // Continue without validation if schema building fails
+    }
+  }
+
+  // Convert database structure to ContentTypeDefinition format
+  const contentType = {
+    id: contentTypeData.id,
+    name: contentTypeData.name,
+    category: contentTypeData.category,
+    description: contentTypeData.description,
+    version: contentTypeData.version,
+    outputContract: contentTypeData.output_contract,
+    sceneGenerationPolicy: contentTypeData.scene_generation_policy,
+    inputsContract: inputsContract,
+    prompting: contentTypeData.prompting,
+  };
+
   try {
-    const generated = await generateScenes({
-      templateConfig: configValidation.data,
-      productName: validationResult.data.productName,
-      productLink: validationResult.data.productLink,
-      offer: validationResult.data.offer || undefined,
-      features: validationResult.data.features,
-      targetAudience: validationResult.data.targetAudience,
-      platform: (validationResult.data.platform && validationResult.data.platform !== '') 
-        ? validationResult.data.platform as 'TikTok' | 'Reels' | 'Shorts'
-        : undefined,
+    // Generate actual content using the content type's prompting system
+    const generated = await generateContent({
+      contentType,
+      inputs: inputs as any, // Inputs are validated above if fields exist
     });
 
-    // Mock video URL (stable sample)
+    const generatedOutput = {
+      format: 'storyboard_v1' as const,
+      scenes: generated.scenes,
+      textOverlaySuggestions: generated.textOverlaySuggestions,
+      thumbnailPrompt: generated.thumbnailPrompt,
+    };
+
+    // Mock video URL
     const videoUrl = 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4';
 
-    // Save project to database
-    const projectName = `${validationResult.data.productName} - ${template.name}`;
-    const { data: savedProject, error: saveError } = await supabaseAdmin
-      .from('projects')
+    // Save to database
+    const { data: savedRequest, error: saveError } = await supabaseAdmin
+      .from('content_creation_requests')
       .insert({
-        name: projectName,
-        template_id: template.id,
-        template_name: template.name,
-        product_name: validationResult.data.productName,
-        product_link: validationResult.data.productLink || null,
-        offer: validationResult.data.offer || '',
-        features: validationResult.data.features || null,
-        target_audience: validationResult.data.targetAudience || null,
-        platform: validationResult.data.platform || '',
-        scenes: generated.scenes,
-        rendering_spec: generated.renderingSpec,
+        content_type_id: contentTypeId,
+        inputs: inputs,
+        generated_output: generatedOutput,
+        status: 'completed',
         video_url: videoUrl,
       })
       .select()
       .single();
 
     if (saveError) {
-      console.error('Error saving project:', saveError);
       // Still return success with the generated data even if save fails
     }
 
     revalidatePath('/app');
 
+    // Preserve generation context in scenes
+    const scenesWithContext = generated.scenes.map((scene: any, idx: number) => ({
+      ...scene,
+      index: scene.index ?? (idx + 1), // Use existing index or array position + 1
+      // Keep generationContext if it exists
+      generationContext: scene.generationContext || generated.generationContext,
+    }));
+
     return {
       success: true,
       data: {
-        ...generated,
+        format: 'storyboard_v1',
+        scenes: scenesWithContext,
+        textOverlaySuggestions: generated.textOverlaySuggestions,
+        thumbnailPrompt: generated.thumbnailPrompt,
         videoUrl,
-        templateName: template.name,
-        projectId: savedProject?.id,
+        contentTypeName: contentType.name,
+        templateName: contentType.name, // For backward compatibility
+        requestId: savedRequest?.id,
+        projectId: savedRequest?.id, // For backward compatibility
       },
     };
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : 'Failed to generate scenes',
+      error: error instanceof Error ? error.message : 'Failed to generate content',
     };
   }
 }

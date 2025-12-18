@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { TemplateConfigSchema } from '@/lib/schemas';
 import { revalidatePath } from 'next/cache';
 
 // Disable caching for API routes
@@ -8,52 +7,44 @@ export const dynamic = 'force-dynamic';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const resolvedParams = await params;
     const { workflow } = await request.json();
-    const templateId = params.id;
+    const contentTypeId = resolvedParams.id;
 
-    // Fetch current template
-    const { data: template, error: fetchError } = await supabaseAdmin
-      .from('templates')
-      .select('config')
-      .eq('id', templateId)
+    // Fetch current content type
+    const { data: contentType, error: fetchError } = await supabaseAdmin
+      .from('content_types')
+      .select('*')
+      .eq('id', contentTypeId)
       .single();
 
-    if (fetchError || !template) {
-      console.error('Template fetch error:', fetchError);
-      return NextResponse.json({ error: 'Template not found' }, { status: 404 });
+    if (fetchError || !contentType) {
+      console.error('Content type fetch error:', fetchError);
+      return NextResponse.json({ error: 'Content type not found' }, { status: 404 });
     }
 
-    // Merge workflow into config - preserve existing workflow fields
-    const existingWorkflow = template.config.workflow || {};
-    const updatedConfig = {
-      ...template.config,
-      workflow: {
-        ...existingWorkflow,
-        agentWorkflow: workflow,
-        // Preserve sceneBlueprint and constraints if they exist
-        sceneBlueprint: existingWorkflow.sceneBlueprint || [],
-        constraints: existingWorkflow.constraints || [],
-      },
+    // Extract agent names from workflow
+    const agentNames = workflow.agents?.map((agent: any) => agent.name || agent.role) || [];
+
+    // Update prompting field with agents and preserve other prompting fields
+    const updatedPrompting = {
+      ...contentType.prompting,
+      agents: agentNames,
+      // Store full workflow in a custom field for reference
+      agentWorkflow: workflow,
     };
 
-    // Validate config - but always use updatedConfig to preserve agentWorkflow
-    // Even if validation succeeds, validation.data might strip agentWorkflow due to union type matching
-    const validation = TemplateConfigSchema.safeParse(updatedConfig);
-    if (!validation.success) {
-      console.error('Config validation error:', validation.error);
-    }
-
-    // Always use updatedConfig to ensure agentWorkflow is preserved
-    // Don't use validation.data as it might strip agentWorkflow when matching legacy schema
-    const configToSave = updatedConfig;
-    const { data: updatedTemplate, error: updateError } = await supabaseAdmin
-      .from('templates')
-      .update({ config: configToSave })
-      .eq('id', templateId)
-      .select('config')
+    const { data: updatedContentType, error: updateError } = await supabaseAdmin
+      .from('content_types')
+      .update({ 
+        prompting: updatedPrompting,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', contentTypeId)
+      .select('prompting')
       .single();
 
     if (updateError) {
@@ -63,9 +54,9 @@ export async function PUT(
 
     // Revalidate the templates page and workflow editor page to ensure fresh data
     revalidatePath('/app/templates');
-    revalidatePath(`/app/templates/${templateId}/workflow`);
+    revalidatePath(`/app/templates/${contentTypeId}/workflow`);
 
-    return NextResponse.json({ success: true, config: updatedTemplate?.config });
+    return NextResponse.json({ success: true, prompting: updatedContentType?.prompting });
   } catch (error) {
     console.error('Unexpected error:', error);
     return NextResponse.json(

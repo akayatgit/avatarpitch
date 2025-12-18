@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import AgentBreakdownDialog from './AgentBreakdownDialog';
+import GenerationBreakdownDialog from './GenerationBreakdownDialog';
 import ImageGenerationDialog from './ImageGenerationDialog';
 import ImageCarousel from './ImageCarousel';
 import ImageViewer from './ImageViewer';
@@ -26,30 +27,50 @@ interface FinalAssembler {
 interface ProjectResultsProps {
   result: {
     scenes: Array<{
-      index: number;
-      shotType: string;
-      camera: string;
-      imagePrompt: string;
+      // New schema fields (storyboard_v1)
+      id?: string;
+      purpose?: string;
+      imagePrompt?: string;
       negativePrompt?: string;
-      onScreenText?: string;
+      camera?: {
+        shot?: string;
+        lens?: string;
+        movement?: string;
+      } | string; // Support both object and string for backward compatibility
+      environment?: {
+        location?: string;
+        timeOfDay?: string;
+        lighting?: string;
+      };
+      onScreenText?: {
+        text?: string;
+        styleNotes?: string;
+      } | string; // Support both object and string for backward compatibility
+      compositionNotes?: string;
+      // Legacy fields (for backward compatibility)
+      index?: number;
+      shotType?: string;
+      imagePrompt?: string;
       notes?: string;
-      durationSeconds?: number; // Optional for image-first
+      durationSeconds?: number;
       agentContributions?: AgentContribution[];
       finalAssembler?: FinalAssembler;
       imageUrls?: string[]; // Generated image URLs
     }>;
-    renderingSpec: {
-      aspectRatio: string;
-      style: string;
+    renderingSpec?: {
+      aspectRatio?: string;
+      style?: string;
       imageModelHint?: string;
       colorGrade?: string;
       lightingMood?: string;
       musicMood?: string; // Legacy
       transitions?: string; // Legacy
     };
-    videoUrl: string;
-    templateName: string;
+    videoUrl?: string;
+    templateName?: string;
+    contentTypeName?: string;
     projectId?: string; // Project ID for saving images
+    requestId?: string; // Content creation request ID
   };
   onStartNew: () => void;
 }
@@ -73,14 +94,15 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
 
   // Load existing images from scene.imageUrls when component mounts or result changes
   useEffect(() => {
-    const existingImages: GeneratedImage[] = result.scenes.flatMap((scene) => 
-      (scene.imageUrls || []).map((url, idx) => ({
-        sceneIndex: scene.index,
+    const existingImages: GeneratedImage[] = result.scenes.flatMap((scene, idx) => {
+      const sceneIndex = scene.index ?? (idx + 1);
+      return (scene.imageUrls || []).map((url, imgIdx) => ({
+        sceneIndex,
         url,
         generating: false,
-        imageIndex: idx,
-      }))
-    );
+        imageIndex: imgIdx,
+      }));
+    });
     
     if (existingImages.length > 0) {
       setGeneratedImages(existingImages);
@@ -101,8 +123,8 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
 
   const handleDownload = () => {
     setDownloading(true);
-    const bundle = {
-      template: result.templateName,
+      const bundle = {
+      template: result.templateName || result.contentTypeName,
       generatedAt: new Date().toISOString(),
       scenes: result.scenes,
       renderingSpec: result.renderingSpec,
@@ -121,7 +143,10 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
     setDownloading(false);
   };
 
-  const totalDuration = result.scenes.reduce((sum: number, scene: any) => sum + (scene.durationSeconds || 0), 0);
+  const totalDuration = result.scenes.reduce((sum: number, scene: any) => {
+    // Note: durationSeconds may not be present in new schema (image-first generation)
+    return sum + (scene.durationSeconds || 0);
+  }, 0);
 
   const uploadImageToServer = async (file: File): Promise<string> => {
     const formData = new FormData();
@@ -158,11 +183,19 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
 
       // Generate images for each scene
       for (const scene of result.scenes) {
+        const sceneIndex = scene.index ?? (result.scenes.indexOf(scene) + 1);
+        const imagePrompt = scene.imagePrompt ?? '';
+        
+        if (!imagePrompt) {
+          console.warn(`Skipping scene ${sceneIndex}: no image prompt available`);
+          continue;
+        }
+        
         // Add placeholders for this scene (one per image requested)
         for (let i = 0; i < numImages; i++) {
           setGeneratedImages(prev => [
             ...prev,
-            { sceneIndex: scene.index, url: '', generating: true, imageIndex: i },
+            { sceneIndex, url: '', generating: true, imageIndex: i },
           ]);
         }
 
@@ -173,7 +206,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                scenePrompt: scene.imagePrompt,
+                scenePrompt: imagePrompt,
                 referenceImageUrl: primaryReferenceUrl,
                 model,
                 screenshotUrl: primaryReferenceUrl, // Using reference as screenshot for now
@@ -193,20 +226,20 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
             if (data.images && data.images.length > 0) {
               const imageUrl = data.images[0];
               successfulImages.push({
-                sceneIndex: scene.index,
+                sceneIndex,
                 url: imageUrl,
               });
 
               setGeneratedImages(prev => {
                 const updated = [...prev];
                 const index = updated.findIndex(
-                  img => img.sceneIndex === scene.index && 
+                  img => img.sceneIndex === sceneIndex && 
                          img.generating && 
                          (img.imageIndex ?? 0) === imageIndex
                 );
                 if (index !== -1) {
                   updated[index] = {
-                    sceneIndex: scene.index,
+                    sceneIndex,
                     url: imageUrl,
                     generating: false,
                     imageIndex: imageIndex,
@@ -216,11 +249,11 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
               });
             }
           } catch (error) {
-            console.error(`Error generating image ${imageIndex + 1} for scene ${scene.index}:`, error);
+            console.error(`Error generating image ${imageIndex + 1} for scene ${sceneIndex}:`, error);
             // Remove failed placeholder
             setGeneratedImages(prev =>
               prev.filter(img => !(
-                img.sceneIndex === scene.index && 
+                img.sceneIndex === sceneIndex && 
                 img.generating && 
                 (img.imageIndex ?? 0) === imageIndex
               ))
@@ -254,7 +287,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
       <div className="bg-green-50 border border-green-200 rounded-xl p-4">
         <p className="text-sm sm:text-base text-green-800 font-medium">Project generated successfully!</p>
         <p className="text-xs sm:text-sm text-green-600 mt-1">
-          Content Type: {result.templateName}
+          Content Type: {result.templateName || result.contentTypeName || 'Unknown'}
         </p>
       </div>
 
@@ -269,33 +302,47 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
           </button>
           </div>
         <div className="space-y-3 sm:space-y-4">
-          {result.scenes.map((scene: any) => {
-            const isExpanded = expandedScenes.has(scene.index);
-            const previewText = scene.imagePrompt.length > 100 
-              ? scene.imagePrompt.substring(0, 100) + '...' 
-              : scene.imagePrompt;
+          {result.scenes.map((scene: any, idx: number) => {
+            // Support both new and old schema formats
+            const sceneIndex = scene.index ?? (idx + 1);
+            const scenePurpose = scene.purpose ?? scene.shotType ?? 'Scene';
+            const imagePrompt = scene.imagePrompt ?? '';
+            const cameraText = typeof scene.camera === 'string' 
+              ? scene.camera 
+              : scene.camera?.shot 
+                ? `${scene.camera.shot}${scene.camera.lens ? `, ${scene.camera.lens}` : ''}${scene.camera.movement ? `, ${scene.camera.movement}` : ''}`
+                : '';
+            const onScreenTextValue = typeof scene.onScreenText === 'string'
+              ? scene.onScreenText
+              : scene.onScreenText?.text ?? '';
+            
+            const isExpanded = expandedScenes.has(sceneIndex);
+            const previewText = imagePrompt && imagePrompt.length > 100 
+              ? imagePrompt.substring(0, 100) + '...' 
+              : imagePrompt || 'No prompt available';
 
             return (
-              <div key={scene.index} className="border border-gray-200 rounded-xl overflow-hidden transition-all">
+              <div key={sceneIndex} className="border border-gray-200 rounded-xl overflow-hidden transition-all">
                 <div 
                   className="p-4 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors"
-                  onClick={() => toggleScene(scene.index)}
+                  onClick={() => toggleScene(sceneIndex)}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-sm sm:text-base font-medium text-gray-900">Scene {scene.index}</h3>
+                <h3 className="text-sm sm:text-base font-medium text-gray-900">Scene {sceneIndex}</h3>
                 <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-lg font-medium">
-                  {scene.shotType}
+                  {scenePurpose}
                 </span>
-                        {scene.agentContributions && scene.agentContributions.length > 0 && (
+                        {/* Always show info icon if generation context exists */}
+                        {(scene.generationContext || scene.agentContributions) && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedScene(scene.index);
+                              setSelectedScene(sceneIndex);
                             }}
                             className="p-1 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                            title="View agent breakdown"
+                            title="View generation breakdown"
                           >
                             <svg
                               xmlns="http://www.w3.org/2000/svg"
@@ -324,7 +371,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                       className="ml-2 text-gray-400 hover:text-gray-600 transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleScene(scene.index);
+                        toggleScene(sceneIndex);
                       }}
                     >
                       <svg
@@ -342,26 +389,46 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                 {isExpanded && (
                   <div className="px-4 pb-4 pt-0 border-t border-gray-100">
                     <div className="pt-4 space-y-2">
-                      <p className="text-xs sm:text-sm text-gray-600">
-                <span className="font-medium">Image Prompt:</span> {scene.imagePrompt}
-              </p>
-              {scene.negativePrompt && (
+                      {imagePrompt && (
                         <p className="text-xs sm:text-sm text-gray-600">
-                  <span className="font-medium">Negative Prompt:</span> {scene.negativePrompt}
-                </p>
-              )}
-                      <p className="text-xs sm:text-sm text-gray-600">
-                <span className="font-medium">Camera:</span> {scene.camera}
-              </p>
-              {scene.onScreenText && (
+                          <span className="font-medium">Image Prompt:</span> {imagePrompt}
+                        </p>
+                      )}
+                      {scene.negativePrompt && (
                         <p className="text-xs sm:text-sm text-gray-600">
-                  <span className="font-medium">On-screen Text:</span> {scene.onScreenText}
-                </p>
-              )}
-              {scene.notes && (
-                <p className="text-xs sm:text-sm text-gray-500 italic">{scene.notes}</p>
-              )}
-            </div>
+                          <span className="font-medium">Negative Prompt:</span> {scene.negativePrompt}
+                        </p>
+                      )}
+                      {cameraText && (
+                        <p className="text-xs sm:text-sm text-gray-600">
+                          <span className="font-medium">Camera:</span> {cameraText}
+                        </p>
+                      )}
+                      {scene.environment && (
+                        <p className="text-xs sm:text-sm text-gray-600">
+                          <span className="font-medium">Environment:</span> {
+                            [
+                              scene.environment.location,
+                              scene.environment.timeOfDay,
+                              scene.environment.lighting
+                            ].filter(Boolean).join(', ') || 'Not specified'
+                          }
+                        </p>
+                      )}
+                      {onScreenTextValue && (
+                        <p className="text-xs sm:text-sm text-gray-600">
+                          <span className="font-medium">On-screen Text:</span> {onScreenTextValue}
+                          {typeof scene.onScreenText === 'object' && scene.onScreenText?.styleNotes && (
+                            <span className="text-gray-500 ml-2">({scene.onScreenText.styleNotes})</span>
+                          )}
+                        </p>
+                      )}
+                      {(scene.compositionNotes || scene.notes) && (
+                        <p className="text-xs sm:text-sm text-gray-500 italic">
+                          {scene.compositionNotes || scene.notes}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -377,42 +444,48 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
         />
       )}
 
-      <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200">
-        <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Rendering Spec</h2>
-        <div className="space-y-2 text-sm sm:text-base">
-          <p>
-            <span className="font-medium">Aspect Ratio:</span> {result.renderingSpec.aspectRatio}
-          </p>
-          <p>
-            <span className="font-medium">Style:</span> {result.renderingSpec.style}
-          </p>
-          {result.renderingSpec.imageModelHint && (
-            <p>
-              <span className="font-medium">Image Model:</span> {result.renderingSpec.imageModelHint}
-            </p>
-          )}
-          {result.renderingSpec.colorGrade && (
-            <p>
-              <span className="font-medium">Color Grade:</span> {result.renderingSpec.colorGrade}
-            </p>
-          )}
-          {result.renderingSpec.lightingMood && (
-            <p>
-              <span className="font-medium">Lighting:</span> {result.renderingSpec.lightingMood}
-            </p>
-          )}
-          {result.renderingSpec.musicMood && (
-            <p>
-              <span className="font-medium">Music Mood:</span> {result.renderingSpec.musicMood}
-            </p>
-          )}
-          {result.renderingSpec.transitions && (
-            <p>
-              <span className="font-medium">Transitions:</span> {result.renderingSpec.transitions}
-            </p>
-          )}
+      {result.renderingSpec && (
+        <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200">
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Rendering Spec</h2>
+          <div className="space-y-2 text-sm sm:text-base">
+            {result.renderingSpec.aspectRatio && (
+              <p>
+                <span className="font-medium">Aspect Ratio:</span> {result.renderingSpec.aspectRatio}
+              </p>
+            )}
+            {result.renderingSpec.style && (
+              <p>
+                <span className="font-medium">Style:</span> {result.renderingSpec.style}
+              </p>
+            )}
+            {result.renderingSpec.imageModelHint && (
+              <p>
+                <span className="font-medium">Image Model:</span> {result.renderingSpec.imageModelHint}
+              </p>
+            )}
+            {result.renderingSpec.colorGrade && (
+              <p>
+                <span className="font-medium">Color Grade:</span> {result.renderingSpec.colorGrade}
+              </p>
+            )}
+            {result.renderingSpec.lightingMood && (
+              <p>
+                <span className="font-medium">Lighting:</span> {result.renderingSpec.lightingMood}
+              </p>
+            )}
+            {result.renderingSpec.musicMood && (
+              <p>
+                <span className="font-medium">Music Mood:</span> {result.renderingSpec.musicMood}
+              </p>
+            )}
+            {result.renderingSpec.transitions && (
+              <p>
+                <span className="font-medium">Transitions:</span> {result.renderingSpec.transitions}
+              </p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
         <button
@@ -430,20 +503,38 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
         </button>
       </div>
 
-      {/* Agent Breakdown Dialog */}
+      {/* Generation Breakdown Dialog */}
       {selectedScene !== null && (() => {
-        const scene = result.scenes.find(s => s.index === selectedScene);
+        const scene = result.scenes.find((s, idx) => (s.index ?? (idx + 1)) === selectedScene);
         if (!scene) return null;
-        return (
-          <AgentBreakdownDialog
-            sceneIndex={scene.index}
-            sceneType={scene.shotType}
-            finalPrompt={scene.imagePrompt}
-            agentContributions={scene.agentContributions}
-            finalAssembler={scene.finalAssembler}
-            onClose={() => setSelectedScene(null)}
-          />
-        );
+        const sceneIndex = scene.index ?? (result.scenes.indexOf(scene) + 1);
+        const scenePurpose = scene.purpose ?? scene.shotType ?? 'Scene';
+        const imagePrompt = scene.imagePrompt ?? '';
+        
+        // Use new generation context if available, otherwise fall back to agent contributions
+        if (scene.generationContext) {
+          return (
+            <GenerationBreakdownDialog
+              sceneIndex={sceneIndex}
+              sceneType={scenePurpose}
+              finalPrompt={imagePrompt}
+              generationContext={scene.generationContext}
+              agentContributions={scene.agentContributions}
+              onClose={() => setSelectedScene(null)}
+            />
+          );
+        } else {
+          return (
+            <AgentBreakdownDialog
+              sceneIndex={sceneIndex}
+              sceneType={scenePurpose}
+              finalPrompt={imagePrompt}
+              agentContributions={scene.agentContributions}
+              finalAssembler={scene.finalAssembler}
+              onClose={() => setSelectedScene(null)}
+            />
+          );
+        }
       })()}
 
       {/* Image Generation Dialog */}
