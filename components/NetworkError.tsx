@@ -6,12 +6,12 @@ interface NetworkErrorProps {
 
 export default function NetworkError({ message }: NetworkErrorProps) {
   return (
-    <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl p-6 sm:p-8 max-w-md w-full shadow-xl">
+    <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+      <div className="bg-black border border-gray-800 rounded-xl p-6 sm:p-8 max-w-md w-full shadow-xl">
         <div className="flex items-center justify-center mb-4">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
+          <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center">
             <svg
-              className="w-8 h-8 text-red-600"
+              className="w-8 h-8 text-red-400"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -25,10 +25,10 @@ export default function NetworkError({ message }: NetworkErrorProps) {
             </svg>
           </div>
         </div>
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-900 text-center mb-2">
+        <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-2">
           No Internet Connection
         </h2>
-        <p className="text-sm sm:text-base text-gray-600 text-center mb-6">
+        <p className="text-sm sm:text-base text-gray-400 text-center mb-6">
           {message || 'Please check your internet connection and try again.'}
         </p>
         <button

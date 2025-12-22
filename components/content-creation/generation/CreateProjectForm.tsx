@@ -14,6 +14,7 @@ interface Template {
 interface CreateProjectFormProps {
   templates: Template[];
   generateProject: (formData: FormData) => Promise<any>;
+  preselectedContentTypeId?: string;
 }
 
 interface Agent {
@@ -23,15 +24,16 @@ interface Agent {
   order: number;
 }
 
-export default function CreateProjectForm({ templates, generateProject }: CreateProjectFormProps) {
+export default function CreateProjectForm({ templates, generateProject, preselectedContentTypeId }: CreateProjectFormProps) {
   console.log('[CreateProjectForm] Component rendered:', {
-    templatesCount: templates.length
+    templatesCount: templates.length,
+    preselectedContentTypeId
   });
 
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(preselectedContentTypeId || '');
   const [contentType, setContentType] = useState<ContentTypeDefinition | null>(null);
   const [formInputs, setFormInputs] = useState<Record<string, any>>({});
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -314,7 +316,7 @@ export default function CreateProjectForm({ templates, generateProject }: Create
         <div className="card">
           <form id="project-form" onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label htmlFor="contentTypeId" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="contentTypeId" className="block text-sm font-medium text-white mb-2">
                 Content Type *
               </label>
               <select
@@ -338,7 +340,7 @@ export default function CreateProjectForm({ templates, generateProject }: Create
                 ))}
               </select>
               {contentType && (
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 text-sm text-gray-400">
                   {contentType.description || `Category: ${contentType.category}`}
                 </p>
               )}
@@ -353,7 +355,7 @@ export default function CreateProjectForm({ templates, generateProject }: Create
             )}
 
             {error && (
-              <div className="text-sm text-red-600 bg-red-50 p-4 rounded-xl border border-red-200">
+              <div className="text-sm text-red-400 bg-red-900/20 p-4 rounded-xl border border-red-800">
                 {error}
               </div>
             )}
@@ -385,11 +387,11 @@ export default function CreateProjectForm({ templates, generateProject }: Create
 
       {/* Information Section */}
       <div className="lg:col-span-1">
-        <div className="bg-gray-100 rounded-xl p-6 sticky top-6">
-          <h3 className="text-lg font-semibold text-gray-500 mb-4">Form Guide</h3>
-          <div className="space-y-4 text-sm text-gray-500">
+        <div className="bg-gray-900 rounded-xl p-6 sticky top-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Form Guide</h3>
+          <div className="space-y-4 text-sm text-gray-400">
             <div>
-              <h4 className="font-medium text-gray-500 mb-1">Content Type</h4>
+              <h4 className="font-medium text-white mb-1">Content Type</h4>
               <p className="text-sm text-gray-400">
                 Select a content type that defines the style, structure, and rules for your content generation.
               </p>
@@ -397,7 +399,7 @@ export default function CreateProjectForm({ templates, generateProject }: Create
             {contentType && (
               <>
                 <div>
-                  <h4 className="font-medium text-gray-500 mb-1">Dynamic Fields</h4>
+                  <h4 className="font-medium text-white mb-1">Dynamic Fields</h4>
                   <p className="text-sm text-gray-400">
                     The form fields below are dynamically generated based on the selected content type's input contract.
                     Required fields are marked with an asterisk (*).
@@ -405,11 +407,11 @@ export default function CreateProjectForm({ templates, generateProject }: Create
                 </div>
                 {contentType.inputsContract.fields.length > 0 && (
                   <div>
-                    <h4 className="font-medium text-gray-500 mb-1">Available Fields</h4>
+                    <h4 className="font-medium text-white mb-1">Available Fields</h4>
                     <ul className="text-sm text-gray-400 list-disc list-inside space-y-1">
                       {contentType.inputsContract.fields.map((field) => (
                         <li key={field.key}>
-                          {field.label} {field.required && <span className="text-red-500">*</span>}
+                          {field.label} {field.required && <span className="text-red-400">*</span>}
                         </li>
                       ))}
                     </ul>

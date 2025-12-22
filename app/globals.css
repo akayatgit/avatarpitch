@@ -14,13 +14,13 @@
   }
 
   body {
-    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+    @apply bg-black text-white font-sans antialiased;
     -webkit-tap-highlight-color: transparent;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply font-semibold text-gray-900;
+    @apply font-semibold text-white;
   }
 
   h1 {
@@ -42,41 +42,49 @@
 
 @layer components {
   .btn-primary {
-    @apply px-6 py-3 bg-primary-500 text-white rounded-xl font-medium 
-           shadow-sm hover:bg-primary-600 hover:shadow-md 
-           active:bg-primary-700 active:scale-95 
+    @apply px-6 py-3 bg-[#D1FE17] text-black rounded-xl font-medium 
+           shadow-sm hover:bg-[#B8E014] hover:shadow-md 
+           active:bg-[#9FC211] active:scale-95 
            transition-all duration-200 focus:outline-none 
-           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+           focus:ring-2 focus:ring-[#D1FE17] focus:ring-offset-2 focus:ring-offset-black;
   }
 
   .btn-secondary {
-    @apply px-6 py-3 bg-white text-gray-700 border border-gray-200 
-           rounded-xl font-medium shadow-sm hover:bg-gray-50 
-           hover:shadow-md active:bg-gray-100 active:scale-95 
+    @apply px-6 py-3 bg-gray-800 text-white border border-gray-700 
+           rounded-xl font-medium shadow-sm hover:bg-gray-700 
+           hover:shadow-md active:bg-gray-600 active:scale-95 
            transition-all duration-200 focus:outline-none 
-           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+           focus:ring-2 focus:ring-[#D1FE17] focus:ring-offset-2 focus:ring-offset-black;
   }
 
   .btn-ghost {
-    @apply px-6 py-3 text-gray-700 rounded-xl font-medium 
-           hover:bg-gray-100 active:bg-gray-200 
+    @apply px-6 py-3 text-white rounded-xl font-medium 
+           hover:bg-gray-900 active:bg-gray-800 
            transition-all duration-200 focus:outline-none 
-           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+           focus:ring-2 focus:ring-[#D1FE17] focus:ring-offset-2 focus:ring-offset-black;
   }
 
   .card {
-    @apply bg-white rounded-xl p-6 shadow-sm border border-gray-200;
+    @apply bg-black rounded-xl p-6 shadow-sm border border-gray-800;
   }
 
   .card-elevated {
-    @apply bg-white rounded-xl p-6 shadow-md border border-gray-200;
+    @apply bg-black rounded-xl p-6 shadow-md border border-gray-800;
   }
 
   .input-field {
-    @apply w-full px-4 py-3 border border-gray-200 rounded-xl 
-           focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 
-           transition-all duration-200 text-base bg-white
-           placeholder:text-gray-400;
+    @apply w-full px-4 py-3 border border-gray-700 rounded-xl 
+           focus:border-[#D1FE17] focus:ring-2 focus:ring-[#D1FE17]/20 
+           transition-all duration-200 text-base bg-black text-white
+           placeholder:text-gray-500;
+  }
+
+  select {
+    @apply bg-black text-white;
+  }
+
+  select option {
+    @apply bg-black text-white;
   }
 
   .nav-item {
@@ -85,11 +93,11 @@
   }
 
   .nav-item-active {
-    @apply bg-primary-50 text-primary-700 font-medium;
+    @apply bg-gray-900 text-[#D1FE17] font-medium;
   }
 
   .nav-item-inactive {
-    @apply text-gray-700 hover:bg-gray-50;
+    @apply text-gray-300 hover:bg-gray-900;
   }
 }
 
@@ -106,15 +114,15 @@
     0%, 100% {
       transform: scale(1);
       box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05), 
-                  0 0 0 0 rgba(16, 185, 129, 0.4),
-                  0 0 20px 0 rgba(16, 185, 129, 0);
+                  0 0 0 0 rgba(209, 254, 23, 0.4),
+                  0 0 20px 0 rgba(209, 254, 23, 0);
     }
     50% {
       transform: scale(1.05);
       box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 
                   0 2px 4px -1px rgba(0, 0, 0, 0.06),
-                  0 0 0 12px rgba(16, 185, 129, 0.3),
-                  0 0 30px 8px rgba(16, 185, 129, 0.4);
+                  0 0 0 12px rgba(209, 254, 23, 0.3),
+                  0 0 30px 8px rgba(209, 254, 23, 0.4);
     }
   }
 }

@@ -65,7 +65,7 @@ export default function DynamicFormFields({ contentType, formData, onChange }: D
       fieldsLength: contentType?.inputsContract?.fields?.length
     });
     return (
-      <div className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
+      <div className="text-sm text-gray-400 p-4 bg-gray-900 rounded-lg">
         No input fields defined for this content type. Please select a content type first.
       </div>
     );
@@ -81,11 +81,11 @@ export default function DynamicFormFields({ contentType, formData, onChange }: D
 
         return (
           <div key={field.key}>
-            <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor={fieldId} className="block text-sm font-medium text-white mb-2">
               {field.label}
-              {field.required && <span className="text-red-500 ml-1">*</span>}
+              {field.required && <span className="text-red-400 ml-1">*</span>}
               {field.helpText && (
-                <span className="text-xs text-gray-500 font-normal ml-2">({field.helpText})</span>
+                <span className="text-xs text-gray-400 font-normal ml-2">({field.helpText})</span>
               )}
             </label>
 
@@ -126,7 +126,7 @@ export default function DynamicFormFields({ contentType, formData, onChange }: D
                   onChange={(e) => handleFieldChange(field.key, e.target.checked)}
                   className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
                 />
-                <span className="text-sm text-gray-700">{field.helpText || 'Enable'}</span>
+                <span className="text-sm text-white">{field.helpText || 'Enable'}</span>
               </label>
             )}
 
@@ -171,7 +171,7 @@ export default function DynamicFormFields({ contentType, formData, onChange }: D
                       placeholder={`Enter ${field.label.toLowerCase()}`}
                     />
                     {field.maxItems && (
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-400">
                         Maximum {field.maxItems} items. Enter each item on a new line.
                       </p>
                     )}
@@ -197,7 +197,7 @@ export default function DynamicFormFields({ contentType, formData, onChange }: D
                       placeholder={`Enter ${field.label.toLowerCase()} separated by commas${field.maxItems ? ` (max ${field.maxItems})` : ''}`}
                     />
                     {field.maxItems && (
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-400">
                         Maximum {field.maxItems} items. Separate with commas.
                       </p>
                     )}

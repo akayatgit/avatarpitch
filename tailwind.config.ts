@@ -33,6 +33,11 @@ const config: Config = {
           800: '#92400e',
           900: '#78350f',
         },
+        button: {
+          DEFAULT: '#D1FE17', // Button color
+          hover: '#B8E014',
+          active: '#9FC211',
+        },
       },
       fontFamily: {
         sans: [

@@ -204,10 +204,25 @@ export async function createTemplate(formData: FormData) {
     return { error: `Validation failed: ${validationResult.error.message}` };
   }
 
+  const coverImageUrl = formData.get('coverImageUrl') as string | null;
+
+  // Check if a content type with this name already exists
+  const trimmedName = validationResult.data.name.trim();
+  const { data: existing, error: checkError } = await supabaseAdmin
+    .from('content_types')
+    .select('id, name')
+    .eq('name', trimmedName)
+    .maybeSingle();
+
+  // If we found an existing content type with this name, return error
+  if (existing && !checkError) {
+    return { error: `A content type with the name "${trimmedName}" already exists. Please choose a different name.` };
+  }
+
   const { data, error } = await supabaseAdmin
     .from('content_types')
     .insert({
-      name: validationResult.data.name,
+      name: trimmedName,
       category: validationResult.data.category,
       description: validationResult.data.description || null,
       version: validationResult.data.version,
@@ -215,11 +230,16 @@ export async function createTemplate(formData: FormData) {
       scene_generation_policy: validationResult.data.sceneGenerationPolicy,
       inputs_contract: validationResult.data.inputsContract,
       prompting: validationResult.data.prompting,
+      cover_image_url: coverImageUrl || null,
     })
     .select()
     .single();
 
   if (error) {
+    // Check for unique constraint violation
+    if (error.code === '23505' || error.message.includes('unique constraint') || error.message.includes('duplicate key')) {
+      return { error: `A content type with the name "${trimmedName}" already exists. Please choose a different name.` };
+    }
     return { error: error.message };
   }
 
@@ -282,10 +302,24 @@ export async function updateTemplate(formData: FormData) {
     return { error: `Validation failed: ${validationResult.error.message}` };
   }
 
-  const { data, error } = await supabaseAdmin
+  const coverImageUrl = formData.get('coverImageUrl') as string | null;
+
+  // Check if a content type with this name already exists (excluding the current one)
+  const trimmedName = validationResult.data.name.trim();
+  const { data: existing, error: checkError } = await supabaseAdmin
     .from('content_types')
-    .update({
-      name: validationResult.data.name,
+    .select('id, name')
+    .eq('name', trimmedName)
+    .neq('id', templateId)
+    .maybeSingle();
+
+  // If we found an existing content type with this name, return error
+  if (existing && !checkError) {
+    return { error: `A content type with the name "${trimmedName}" already exists. Please choose a different name.` };
+  }
+
+  const updateData: any = {
+      name: trimmedName,
       category: validationResult.data.category,
       description: validationResult.data.description || null,
       version: validationResult.data.version,
@@ -294,18 +328,76 @@ export async function updateTemplate(formData: FormData) {
       inputs_contract: validationResult.data.inputsContract,
       prompting: validationResult.data.prompting,
       updated_at: new Date().toISOString(),
-    })
+  };
+
+  // Only update cover_image_url if provided
+  if (coverImageUrl !== null) {
+    updateData.cover_image_url = coverImageUrl;
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('content_types')
+    .update(updateData)
     .eq('id', templateId)
     .select()
     .single();
 
   if (error) {
+    // Check for unique constraint violation
+    if (error.code === '23505' || error.message.includes('unique constraint') || error.message.includes('duplicate key')) {
+      return { error: `A content type with the name "${trimmedName}" already exists. Please choose a different name.` };
+    }
     return { error: error.message };
   }
 
   revalidatePath('/app/templates');
   revalidatePath(`/app/templates/${templateId}`);
   return { success: true, data };
+}
+
+export async function deleteTemplate(formData: FormData) {
+  const id = formData.get('id') as string;
+
+  if (!id) {
+    return { error: 'Content type ID is required' };
+  }
+
+  const { error } = await supabaseAdmin.from('content_types').delete().eq('id', id);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath('/app/templates');
+  return { success: true };
+}
+
+export async function updateTemplateCoverImage(formData: FormData) {
+  const id = formData.get('id') as string;
+  const coverImageUrl = formData.get('coverImageUrl') as string;
+
+  if (!id) {
+    return { error: 'Content type ID is required' };
+  }
+
+  if (!coverImageUrl) {
+    return { error: 'Cover image URL is required' };
+  }
+
+  const { error } = await supabaseAdmin
+    .from('content_types')
+    .update({
+      cover_image_url: coverImageUrl,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  revalidatePath('/app/templates');
+  return { success: true };
 }
 
 // Helper function to build dynamic Zod schema from inputsContract

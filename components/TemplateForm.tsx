@@ -78,6 +78,9 @@ export default function TemplateForm({
     initialData ? { ...defaultContentType, ...initialData } : defaultContentType
   );
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [coverImageUrl, setCoverImageUrl] = useState<string | null>((initialData as any)?.coverImageUrl || null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isEditMode = !!templateId && !!updateTemplate;
 
   // Initialize JSON content
@@ -85,6 +88,7 @@ export default function TemplateForm({
     if (initialData) {
       setJsonContent(JSON.stringify(initialData, null, 2));
       setFormData({ ...defaultContentType, ...initialData });
+      setCoverImageUrl((initialData as any).coverImageUrl || null);
     } else {
       setJsonContent(JSON.stringify(defaultContentType, null, 2));
     }
@@ -165,6 +169,10 @@ export default function TemplateForm({
     formDataObj.set('inputsContract', JSON.stringify(dataToSubmit.inputsContract));
     formDataObj.set('prompting', JSON.stringify(dataToSubmit.prompting));
     
+    if (coverImageUrl) {
+      formDataObj.set('coverImageUrl', coverImageUrl);
+    }
+    
     if (isEditMode && templateId) {
       formDataObj.set('templateId', templateId);
     }
@@ -206,6 +214,64 @@ export default function TemplateForm({
     current[path[path.length - 1]] = value;
     setFormData(newData);
     setJsonContent(JSON.stringify(newData, null, 2));
+  };
+
+  const handleImageUpload = async (file: File) => {
+    setUploadingImage(true);
+    try {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setError('Please select an image file');
+        setUploadingImage(false);
+        return;
+      }
+      // Validate file size (max 10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        setError('Image size must be less than 10MB');
+        setUploadingImage(false);
+        return;
+      }
+
+      // Upload image to Vercel
+      const formData = new FormData();
+      formData.append('images', file);
+
+      const uploadResponse = await fetch('/api/upload-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error('Failed to upload image');
+      }
+
+      const uploadData = await uploadResponse.json();
+      const imageUrl = uploadData.url;
+
+      if (!imageUrl) {
+        throw new Error('No image URL returned');
+      }
+
+      setCoverImageUrl(imageUrl);
+      setError(null);
+    } catch (error) {
+      setError(`Failed to upload image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleImageClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleImageUpload(file);
+    }
+    // Reset input
+    e.target.value = '';
   };
 
   return (
@@ -308,6 +374,64 @@ export default function TemplateForm({
                 onChange={(e) => updateField(['version'], e.target.value)}
                 className="input-field min-h-[44px] touch-manipulation"
                 placeholder="e.g., 1.0.0"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Cover Image (optional)
+              </label>
+              {coverImageUrl ? (
+                <div className="relative">
+                  <div className="w-full h-48 rounded-lg overflow-hidden bg-gray-100 border border-gray-200">
+                    <img
+                      src={coverImageUrl}
+                      alt="Cover"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleImageClick}
+                      disabled={uploadingImage}
+                      className="text-sm px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 active:bg-gray-300 transition-colors duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {uploadingImage ? 'Uploading...' : 'Replace Image'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCoverImageUrl(null)}
+                      disabled={uploadingImage}
+                      className="text-sm px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 active:bg-red-300 transition-colors duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  onClick={handleImageClick}
+                  className="w-full h-48 rounded-lg bg-gray-100 border-2 border-dashed border-gray-300 flex flex-col items-center justify-center cursor-pointer hover:border-primary-400 hover:bg-gray-50 transition-all duration-200"
+                >
+                  {uploadingImage ? (
+                    <div className="text-gray-500 text-sm">Uploading...</div>
+                  ) : (
+                    <>
+                      <div className="text-4xl mb-2">📷</div>
+                      <div className="text-sm text-gray-600 font-medium">Click to upload cover image</div>
+                      <div className="text-xs text-gray-500 mt-1">Max 10MB</div>
+                    </>
+                  )}
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+                disabled={uploadingImage}
               />
             </div>
 

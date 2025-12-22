@@ -28,7 +28,7 @@ export default async function EditTemplatePage({
   }
 
   // Convert database structure to ContentTypeDefinition format
-  const initialData = {
+  const initialData: any = {
     id: contentType.id,
     name: contentType.name,
     category: contentType.category,
@@ -38,6 +38,7 @@ export default async function EditTemplatePage({
     sceneGenerationPolicy: contentType.scene_generation_policy,
     inputsContract: contentType.inputs_contract,
     prompting: contentType.prompting,
+    coverImageUrl: contentType.cover_image_url || null,
   };
 
   async function handleUpdate(formData: FormData) {

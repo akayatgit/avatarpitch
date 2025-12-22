@@ -74,7 +74,7 @@ export default function ProjectList({ projects }: ProjectListProps) {
         <div className="max-w-md w-full text-center space-y-5">
           {/* Welcome Text */}
           <div className="space-y-2 opacity-90">
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+            <h2 className="text-xl sm:text-2xl font-bold text-white">
               Yay! Welcome to Hauloo.
             </h2>
           </div>
@@ -96,7 +96,7 @@ export default function ProjectList({ projects }: ProjectListProps) {
 
           {/* Call to Action Text and Button */}
           <div className="space-y-4 opacity-90">
-            <h3 className="text-lg sm:text-xl font-semibold text-gray-900">
+            <h3 className="text-lg sm:text-xl font-semibold text-white">
               Lets start your marketing campaign..
             </h3>
             
@@ -110,7 +110,7 @@ export default function ProjectList({ projects }: ProjectListProps) {
               </Link>
             </div>
             
-            <p className="text-sm sm:text-base text-gray-600 leading-relaxed">
+            <p className="text-sm sm:text-base text-gray-400 leading-relaxed">
               It takes just 2 minutes to turn your product into an ad.
             </p>
           </div>
@@ -123,26 +123,26 @@ export default function ProjectList({ projects }: ProjectListProps) {
     <div className="card overflow-hidden p-0">
       <div className="overflow-x-auto">
         <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
+          <thead className="bg-gray-900 border-b border-gray-800">
             <tr>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Project Name
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider hidden sm:table-cell">
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">
                 Content Type
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Scenes
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Images
               </th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider hidden lg:table-cell">
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider hidden lg:table-cell">
                 Created
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-black divide-y divide-gray-800">
             {projects.map((project) => {
               const scenes = project.scenes || [];
               const sceneCount = scenes.length;
@@ -151,11 +151,11 @@ export default function ProjectList({ projects }: ProjectListProps) {
               const allImages: string[] = scenes.flatMap((scene) => scene.imageUrls || []);
               
               return (
-                <tr key={project.id} className="hover:bg-gray-50 transition-colors duration-200">
+                <tr key={project.id} className="hover:bg-gray-900 transition-colors duration-200">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <Link
                       href={`/app/projects/${project.id}`}
-                      className="text-sm font-medium text-primary-600 hover:text-primary-700 active:text-primary-800 transition-colors duration-200"
+                      className="text-sm font-medium text-[#D1FE17] hover:text-[#B8E014] active:text-[#9FC211] transition-colors duration-200"
                     >
                       {project.name}
                     </Link>
@@ -166,10 +166,10 @@ export default function ProjectList({ projects }: ProjectListProps) {
                       <span className="mr-2">Scenes: {sceneCount}</span>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 hidden sm:table-cell">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 hidden sm:table-cell">
                     {project.template_name || '-'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white font-medium">
                     {sceneCount} scene{sceneCount !== 1 ? 's' : ''}
                   </td>
                   <td className="px-6 py-4">
@@ -180,18 +180,18 @@ export default function ProjectList({ projects }: ProjectListProps) {
                             key={idx}
                             src={imageUrl}
                             alt={`Scene ${idx + 1}`}
-                            className="w-12 h-12 object-cover rounded-lg border border-gray-200 shadow-sm"
+                            className="w-12 h-12 object-cover rounded-lg border border-gray-800 shadow-sm"
                             loading="lazy"
                           />
                         ))}
                         {allImages.length > 4 && (
-                          <div className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded-lg border border-gray-200 text-xs text-gray-600 font-medium shadow-sm">
+                          <div className="w-12 h-12 flex items-center justify-center bg-gray-900 rounded-lg border border-gray-800 text-xs text-gray-400 font-medium shadow-sm">
                             +{allImages.length - 4}
                           </div>
                         )}
                       </div>
                     ) : (
-                      <span className="text-sm text-gray-400">-</span>
+                      <span className="text-sm text-gray-500">-</span>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 hidden lg:table-cell">

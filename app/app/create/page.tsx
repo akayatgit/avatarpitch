@@ -9,8 +9,15 @@ import ProjectResults from '@/components/content-creation/ProjectResults';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export default async function CreateProjectPage() {
+export default async function CreateProjectPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   try {
+    const resolvedSearchParams = await searchParams;
+    const preselectedContentTypeId = resolvedSearchParams?.contentTypeId as string | undefined;
+
     const { data: templates, error: templatesError } = await supabaseAdmin
       .from('content_types')
       .select('id, name')
@@ -23,17 +30,21 @@ export default async function CreateProjectPage() {
     return (
       <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">
         <div className="mb-6 lg:mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Let's Create Content</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white">Let's Create Content</h1>
         </div>
 
         {(templates || []).length === 0 ? (
-          <div className="bg-accent-50 border border-accent-200 rounded-xl p-4">
-            <p className="text-sm text-accent-800">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p className="text-sm text-gray-300">
               No content types found. Please create a content type first.
             </p>
           </div>
         ) : (
-          <CreateProjectForm templates={templates || []} generateProject={generateProject} />
+          <CreateProjectForm 
+            templates={templates || []} 
+            generateProject={generateProject}
+            preselectedContentTypeId={preselectedContentTypeId}
+          />
         )}
       </div>
     );

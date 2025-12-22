@@ -12,7 +12,7 @@ export const revalidate = 0;
 export default async function TemplatesPage() {
   const { data: templates, error } = await supabaseAdmin
     .from('content_types')
-    .select('id, name, description, category, version, created_at')
+    .select('id, name, description, category, version, created_at, cover_image_url')
     .order('created_at', { ascending: false });
 
   if (error && isSupabaseNetworkError(error)) {
@@ -22,8 +22,8 @@ export default async function TemplatesPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">
       <div className="mb-6 lg:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Content Types</h1>
-        <p className="text-sm sm:text-base text-gray-600">
+        <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Content Types</h1>
+        <p className="text-sm sm:text-base text-gray-400">
           Select a content type to generate high-quality video projects with AI.
         </p>
       </div>
@@ -31,7 +31,7 @@ export default async function TemplatesPage() {
       <CollapsibleTemplateForm createTemplate={createTemplate} />
 
       <div className="mb-6">
-        <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-4">All Content Types</h2>
+        <h2 className="text-lg sm:text-xl font-semibold text-white mb-4">All Content Types</h2>
         <TemplateList templates={templates || []} />
       </div>
     </div>
