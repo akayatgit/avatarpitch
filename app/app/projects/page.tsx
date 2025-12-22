@@ -27,23 +27,76 @@ export default async function ProjectsPage() {
     console.warn('[ProjectsPage] Bootstrap warning, continuing anyway:', error.message);
   }
 
-  // Fetch projects list
+  // Fetch projects list from content_creation_requests
   console.log('[ProjectsPage] Fetching projects...');
   let projects: any[] = [];
   try {
-    const { data: projectsData, error: projectsError } = await supabaseAdmin
-      .from('projects')
-      .select('id, name, template_name, product_name, platform, created_at, scenes')
+    const { data: requestsData, error: requestsError } = await supabaseAdmin
+      .from('content_creation_requests')
+      .select(`
+        id,
+        content_type_id,
+        inputs,
+        generated_output,
+        status,
+        video_url,
+        created_at,
+        updated_at,
+        content_types:content_type_id (
+          name
+        )
+      `)
       .order('created_at', { ascending: false })
       .limit(50);
     
-    if (projectsError && isSupabaseNetworkError(projectsError)) {
+    if (requestsError && isSupabaseNetworkError(requestsError)) {
       console.error('[ProjectsPage] Network error fetching projects');
       return <NetworkError message="Unable to load projects. Please check your internet connection." />;
     }
     
-    if (!projectsError && projectsData) {
-      projects = projectsData;
+    if (!requestsError && requestsData) {
+      // Transform content_creation_requests to match the expected project format
+      projects = requestsData.map((request: any) => {
+        const contentType = Array.isArray(request.content_types) 
+          ? request.content_types[0] 
+          : request.content_types;
+        
+        let inputs: any = {};
+        try {
+          inputs = typeof request.inputs === 'string' 
+            ? JSON.parse(request.inputs) 
+            : request.inputs || {};
+        } catch (e) {
+          console.error('Error parsing inputs:', e);
+        }
+        
+        let generatedOutput: any = {};
+        try {
+          generatedOutput = typeof request.generated_output === 'string'
+            ? JSON.parse(request.generated_output)
+            : request.generated_output || {};
+        } catch (e) {
+          console.error('Error parsing generated_output:', e);
+        }
+        
+        // Extract product name from inputs (handle both flat and nested structures)
+        const productName = inputs['PRODUCT NAME'] || 
+                           inputs['product name'] || 
+                           inputs.subject?.name || 
+                           'Untitled Project';
+        
+        return {
+          id: request.id,
+          name: `${contentType?.name || 'Content'} - ${productName}`,
+          template_name: contentType?.name || 'Unknown',
+          product_name: productName,
+          platform: inputs.platform || 'unknown',
+          created_at: request.created_at,
+          scenes: generatedOutput?.scenes || [],
+          status: request.status,
+          video_url: request.video_url,
+        };
+      });
     }
   } catch (error: any) {
     console.error('[ProjectsPage] Unexpected error fetching projects:', error);
@@ -59,12 +112,8 @@ export default async function ProjectsPage() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8 min-h-[calc(100vh-4rem)]">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 lg:mb-8">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">My Projects</h1>
-          <p className="text-sm text-gray-400">View and manage your created content</p>
-        </div>
-        {hasProjects && (
+      {hasProjects && (
+        <div className="flex justify-end mb-6 lg:mb-8">
           <Link
             href="/app/create"
             className="btn-primary inline-flex items-center justify-center gap-2 min-h-[44px]"
@@ -72,8 +121,8 @@ export default async function ProjectsPage() {
             <span>+</span>
             <span>Create new project</span>
           </Link>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Projects List or Welcome Screen */}
       <div className={hasProjects ? 'mb-6 lg:mb-8' : ''}>

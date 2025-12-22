@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import AgentBreakdownDialog from './AgentBreakdownDialog';
 import GenerationBreakdownDialog from './GenerationBreakdownDialog';
 import ImageGenerationDialog from './ImageGenerationDialog';
@@ -116,6 +116,7 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
   
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
+  const activeRequestsRef = useRef<Map<string, AbortController>>(new Map());
 
   // Load existing images from scene.imageUrls when component mounts or result changes
   useEffect(() => {
@@ -191,6 +192,237 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
     return data.url;
   };
 
+  // Replace placeholders in text with actual input values
+  const replacePlaceholders = (text: string, inputs: any): string => {
+    if (!text || !inputs) return text;
+    
+    let replaced = text;
+    
+    // Product/Subject name - handle all case variations
+    const productName = inputs.subject?.name;
+    if (productName) {
+      // Handle various formats: [PRODUCT NAME], [product name], [Product Name], [PRODUCT_NAME], etc.
+      replaced = replaced.replace(/\[PRODUCT\s+NAME\]/gi, productName);
+      replaced = replaced.replace(/\[PRODUCT_NAME\]/gi, productName);
+      replaced = replaced.replace(/\[SUBJECT\s+NAME\]/gi, productName);
+      replaced = replaced.replace(/\[SUBJECT_NAME\]/gi, productName);
+      // Also handle lowercase variations explicitly
+      replaced = replaced.replace(/\[product\s+name\]/gi, productName);
+      replaced = replaced.replace(/\[subject\s+name\]/gi, productName);
+    }
+    
+    // Product category
+    if (inputs.subject?.product?.category) {
+      replaced = replaced.replace(/\[PRODUCT CATEGORY\]/gi, inputs.subject.product.category);
+      replaced = replaced.replace(/\[PRODUCT_CATEGORY\]/gi, inputs.subject.product.category);
+      replaced = replaced.replace(/\[CATEGORY\]/gi, inputs.subject.product.category);
+    }
+    
+    // Product material
+    if (inputs.subject?.product?.material) {
+      replaced = replaced.replace(/\[PRODUCT MATERIAL\]/gi, inputs.subject.product.material);
+      replaced = replaced.replace(/\[PRODUCT_MATERIAL\]/gi, inputs.subject.product.material);
+      replaced = replaced.replace(/\[MATERIAL\]/gi, inputs.subject.product.material);
+    }
+    
+    // Product fit
+    if (inputs.subject?.product?.fit) {
+      replaced = replaced.replace(/\[PRODUCT FIT\]/gi, inputs.subject.product.fit);
+      replaced = replaced.replace(/\[PRODUCT_FIT\]/gi, inputs.subject.product.fit);
+      replaced = replaced.replace(/\[FIT\]/gi, inputs.subject.product.fit);
+    }
+    
+    // Product colors
+    if (inputs.subject?.product?.colors && inputs.subject.product.colors.length > 0) {
+      const colorsStr = inputs.subject.product.colors.join(', ');
+      replaced = replaced.replace(/\[PRODUCT COLORS\]/gi, colorsStr);
+      replaced = replaced.replace(/\[PRODUCT_COLORS\]/gi, colorsStr);
+      replaced = replaced.replace(/\[COLORS\]/gi, colorsStr);
+    }
+    
+    // Product features/key points
+    if (inputs.subject?.product?.keyPoints && inputs.subject.product.keyPoints.length > 0) {
+      const featuresStr = inputs.subject.product.keyPoints.join(', ');
+      replaced = replaced.replace(/\[PRODUCT FEATURES\]/gi, featuresStr);
+      replaced = replaced.replace(/\[PRODUCT_FEATURES\]/gi, featuresStr);
+      replaced = replaced.replace(/\[FEATURES\]/gi, featuresStr);
+      replaced = replaced.replace(/\[KEY POINTS\]/gi, featuresStr);
+      replaced = replaced.replace(/\[KEY_POINTS\]/gi, featuresStr);
+    }
+    
+    // Offer text
+    if (inputs.offer?.text) {
+      replaced = replaced.replace(/\[OFFER\]/gi, inputs.offer.text);
+      replaced = replaced.replace(/\[OFFER TEXT\]/gi, inputs.offer.text);
+      replaced = replaced.replace(/\[OFFER_TEXT\]/gi, inputs.offer.text);
+    }
+    
+    // Target audience
+    if (inputs.audience?.description) {
+      replaced = replaced.replace(/\[TARGET AUDIENCE\]/gi, inputs.audience.description);
+      replaced = replaced.replace(/\[TARGET_AUDIENCE\]/gi, inputs.audience.description);
+      replaced = replaced.replace(/\[AUDIENCE\]/gi, inputs.audience.description);
+    }
+    
+    // Platform
+    if (inputs.platform) {
+      replaced = replaced.replace(/\[PLATFORM\]/gi, inputs.platform);
+    }
+    
+    // Goal
+    if (inputs.goal) {
+      replaced = replaced.replace(/\[GOAL\]/gi, inputs.goal);
+    }
+    
+    // Language
+    if (inputs.language) {
+      replaced = replaced.replace(/\[LANGUAGE\]/gi, inputs.language);
+    }
+    
+    // Tone
+    if (inputs.tone && Array.isArray(inputs.tone) && inputs.tone.length > 0) {
+      const toneStr = inputs.tone.join(', ');
+      replaced = replaced.replace(/\[TONE\]/gi, toneStr);
+    }
+    
+    // Brand name
+    if (inputs.brandCreator?.brandName) {
+      replaced = replaced.replace(/\[BRAND NAME\]/gi, inputs.brandCreator.brandName);
+      replaced = replaced.replace(/\[BRAND_NAME\]/gi, inputs.brandCreator.brandName);
+      replaced = replaced.replace(/\[BRAND\]/gi, inputs.brandCreator.brandName);
+    }
+    
+    // Story fields
+    if (inputs.subject?.story) {
+      if (inputs.subject.story.characters && inputs.subject.story.characters.length > 0) {
+        const charactersStr = inputs.subject.story.characters.join(', ');
+        replaced = replaced.replace(/\[CHARACTERS\]/gi, charactersStr);
+      }
+      if (inputs.subject.story.setting) {
+        replaced = replaced.replace(/\[SETTING\]/gi, inputs.subject.story.setting);
+      }
+      if (inputs.subject.story.theme) {
+        replaced = replaced.replace(/\[THEME\]/gi, inputs.subject.story.theme);
+      }
+      if (inputs.subject.story.conflict) {
+        replaced = replaced.replace(/\[CONFLICT\]/gi, inputs.subject.story.conflict);
+      }
+    }
+    
+    return replaced;
+  };
+
+  // Build comprehensive scene prompt from all scene fields
+  const buildComprehensiveScenePrompt = (scene: any): string => {
+    // Get inputs from generationContext - try multiple paths
+    let inputs = scene.generationContext?.inputs;
+    if (!inputs && result.scenes && result.scenes.length > 0) {
+      inputs = result.scenes[0]?.generationContext?.inputs;
+    }
+    // Debug: log inputs to see structure
+    if (!inputs) {
+      console.warn('No inputs found in generationContext for placeholder replacement');
+    } else {
+      console.log('Inputs for replacement:', JSON.stringify(inputs, null, 2));
+    }
+    
+    const parts: string[] = [];
+    
+    // Add Image Prompt if exists (with placeholder replacement)
+    if (scene.imagePrompt) {
+      const imagePrompt = replacePlaceholders(scene.imagePrompt, inputs);
+      parts.push(`Image Prompt: ${imagePrompt}`);
+    }
+    
+    // Add Negative Prompt if exists (with placeholder replacement)
+    if (scene.negativePrompt) {
+      const negativePrompt = replacePlaceholders(scene.negativePrompt, inputs);
+      parts.push(`Negative Prompt: ${negativePrompt}`);
+    }
+    
+    // Add Camera information (with placeholder replacement)
+    if (scene.camera) {
+      if (typeof scene.camera === 'string') {
+        const camera = replacePlaceholders(scene.camera, inputs);
+        parts.push(`Camera: ${camera}`);
+      } else {
+        const cameraParts: string[] = [];
+        if (scene.camera.shot) cameraParts.push(replacePlaceholders(scene.camera.shot, inputs));
+        if (scene.camera.lens) cameraParts.push(replacePlaceholders(scene.camera.lens, inputs));
+        if (scene.camera.movement) cameraParts.push(replacePlaceholders(scene.camera.movement, inputs));
+        if (cameraParts.length > 0) {
+          parts.push(`Camera: ${cameraParts.join(', ')}`);
+        }
+      }
+    }
+    
+    // Add Environment information (with placeholder replacement)
+    if (scene.environment) {
+      if (typeof scene.environment === 'string') {
+        const environment = replacePlaceholders(scene.environment, inputs);
+        parts.push(`Environment: ${environment}`);
+      } else {
+        const envParts: string[] = [];
+        if (scene.environment.location) envParts.push(replacePlaceholders(scene.environment.location, inputs));
+        if (scene.environment.timeOfDay) envParts.push(replacePlaceholders(scene.environment.timeOfDay, inputs));
+        if (scene.environment.lighting) envParts.push(replacePlaceholders(scene.environment.lighting, inputs));
+        if (envParts.length > 0) {
+          parts.push(`Environment: ${envParts.join(', ')}`);
+        }
+      }
+    }
+    
+    // Add On-screen Text (with placeholder replacement)
+    if (scene.onScreenText) {
+      if (typeof scene.onScreenText === 'string') {
+        const onScreenText = replacePlaceholders(scene.onScreenText, inputs);
+        parts.push(`On-screen Text: ${onScreenText}`);
+      } else {
+        const textParts: string[] = [];
+        if (scene.onScreenText.text) textParts.push(replacePlaceholders(scene.onScreenText.text, inputs));
+        if (scene.onScreenText.styleNotes) textParts.push(`(${replacePlaceholders(scene.onScreenText.styleNotes, inputs)})`);
+        if (textParts.length > 0) {
+          parts.push(`On-screen Text: ${textParts.join(' ')}`);
+        }
+      }
+    }
+    
+    // Add Composition Notes (with placeholder replacement)
+    if (scene.compositionNotes) {
+      const compositionNotes = replacePlaceholders(scene.compositionNotes, inputs);
+      parts.push(`Composition Notes: ${compositionNotes}`);
+    }
+    
+    // Add any other fields dynamically (excluding known fields and metadata)
+    const knownFields = ['id', 'index', 'purpose', 'imagePrompt', 'negativePrompt', 'camera', 'environment', 'onScreenText', 'compositionNotes', 'agentContributions', 'finalAssembler', 'imageUrls', 'generationContext', 'shotType', 'notes', 'durationSeconds'];
+    for (const [key, value] of Object.entries(scene)) {
+      if (!knownFields.includes(key) && value !== null && value !== undefined && value !== '') {
+        // Format the field name (convert camelCase to Title Case)
+        const fieldName = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
+        if (typeof value === 'object' && !Array.isArray(value)) {
+          // For objects, stringify them nicely with placeholder replacement
+          const objStr = Object.entries(value)
+            .filter(([_, v]) => v !== null && v !== undefined && v !== '')
+            .map(([k, v]) => {
+              const valStr = typeof v === 'string' ? replacePlaceholders(v, inputs) : String(v);
+              return `${k}: ${valStr}`;
+            })
+            .join(', ');
+          if (objStr) {
+            parts.push(`${fieldName}: ${objStr}`);
+          }
+        } else if (typeof value === 'string') {
+          const replacedValue = replacePlaceholders(value, inputs);
+          parts.push(`${fieldName}: ${replacedValue}`);
+        } else if (typeof value === 'number' || typeof value === 'boolean') {
+          parts.push(`${fieldName}: ${value}`);
+        }
+      }
+    }
+    
+    return parts.join('\n\n');
+  };
+
   const handleGenerateImages = async (referenceImages: File[], model: string, numImages: number, aspectRatio: string, size: string) => {
     setShowImageDialog(false);
     setGeneratingImages(true);
@@ -198,6 +430,9 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
 
     // Track generated images locally for saving to database
     const successfulImages: Array<{ sceneIndex: number; url: string }> = [];
+    // Track active fetch requests for cancellation
+    const activeRequests = activeRequestsRef.current;
+    activeRequests.clear(); // Clear any previous requests
 
     try {
       // Upload reference images
@@ -209,10 +444,10 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
       // Generate images for each scene
       for (const scene of result.scenes) {
         const sceneIndex = scene.index ?? (result.scenes.indexOf(scene) + 1);
-        const imagePrompt = scene.imagePrompt ?? '';
+        const comprehensivePrompt = buildComprehensiveScenePrompt(scene);
         
-        if (!imagePrompt) {
-          console.warn(`Skipping scene ${sceneIndex}: no image prompt available`);
+        if (!comprehensivePrompt) {
+          console.warn(`Skipping scene ${sceneIndex}: no scene data available`);
           continue;
         }
         
@@ -226,12 +461,17 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
 
         // Make multiple API calls (one per requested image)
         for (let imageIndex = 0; imageIndex < numImages; imageIndex++) {
+          // Create abort controller for this request
+          const abortController = new AbortController();
+          const requestKey = `${sceneIndex}-${imageIndex}`;
+          activeRequests.set(requestKey, abortController);
+
           try {
             const response = await fetch('/api/generate-image', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                scenePrompt: imagePrompt,
+                scenePrompt: comprehensivePrompt,
                 referenceImageUrl: primaryReferenceUrl,
                 model,
                 screenshotUrl: primaryReferenceUrl, // Using reference as screenshot for now
@@ -239,13 +479,24 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                 aspectRatio,
                 size,
               }),
+              signal: abortController.signal,
             });
+
+            // Check if request was aborted
+            if (abortController.signal.aborted) {
+              continue;
+            }
 
             if (!response.ok) {
               throw new Error('Failed to generate image');
             }
 
             const data = await response.json();
+            
+            // Check again if request was aborted after response
+            if (abortController.signal.aborted) {
+              continue;
+            }
             
             // Update the specific placeholder with the generated image
             if (data.images && data.images.length > 0) {
@@ -273,7 +524,12 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                 return updated;
               });
             }
-          } catch (error) {
+          } catch (error: any) {
+            // Ignore abort errors
+            if (error.name === 'AbortError') {
+              console.log(`Image generation ${imageIndex + 1} for scene ${sceneIndex} was skipped`);
+              continue;
+            }
             console.error(`Error generating image ${imageIndex + 1} for scene ${sceneIndex}:`, error);
             // Remove failed placeholder
             setGeneratedImages(prev =>
@@ -283,6 +539,8 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                 (img.imageIndex ?? 0) === imageIndex
               ))
             );
+          } finally {
+            activeRequests.delete(requestKey);
           }
         }
       }
@@ -466,67 +724,26 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
         <ImageCarousel
           images={generatedImages}
           onImageClick={setSelectedImage}
+          onSkip={(image) => {
+            // Find and abort the request for this image
+            const requestKey = `${image.sceneIndex}-${image.imageIndex ?? 0}`;
+            const abortController = activeRequestsRef.current.get(requestKey);
+            if (abortController) {
+              abortController.abort();
+              activeRequestsRef.current.delete(requestKey);
+            }
+            // Remove the generating placeholder
+            setGeneratedImages(prev =>
+              prev.filter(img => !(
+                img.sceneIndex === image.sceneIndex && 
+                img.generating && 
+                (img.imageIndex ?? 0) === (image.imageIndex ?? 0)
+              ))
+            );
+          }}
         />
       )}
 
-      {result.renderingSpec && (
-        <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-4">Rendering Spec</h2>
-          <div className="space-y-2 text-sm sm:text-base">
-            {result.renderingSpec.aspectRatio && (
-              <p>
-                <span className="font-medium">Aspect Ratio:</span> {result.renderingSpec.aspectRatio}
-              </p>
-            )}
-            {result.renderingSpec.style && (
-              <p>
-                <span className="font-medium">Style:</span> {result.renderingSpec.style}
-              </p>
-            )}
-            {result.renderingSpec.imageModelHint && (
-              <p>
-                <span className="font-medium">Image Model:</span> {result.renderingSpec.imageModelHint}
-              </p>
-            )}
-            {result.renderingSpec.colorGrade && (
-              <p>
-                <span className="font-medium">Color Grade:</span> {result.renderingSpec.colorGrade}
-              </p>
-            )}
-            {result.renderingSpec.lightingMood && (
-              <p>
-                <span className="font-medium">Lighting:</span> {result.renderingSpec.lightingMood}
-              </p>
-            )}
-            {result.renderingSpec.musicMood && (
-              <p>
-                <span className="font-medium">Music Mood:</span> {result.renderingSpec.musicMood}
-              </p>
-            )}
-            {result.renderingSpec.transitions && (
-              <p>
-                <span className="font-medium">Transitions:</span> {result.renderingSpec.transitions}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-        <button
-          onClick={handleDownload}
-          disabled={downloading}
-          className="flex-1 inline-flex justify-center items-center px-6 py-3.5 border border-transparent text-base font-medium rounded-xl shadow-md text-white bg-purple-600 active:bg-purple-700 active:scale-95 disabled:opacity-50 transition-all touch-manipulation min-h-[44px]"
-        >
-          {downloading ? 'Downloading...' : 'Download Render Bundle'}
-        </button>
-        <button
-          onClick={onStartNew}
-          className="flex-1 inline-flex justify-center items-center px-6 py-3.5 border border-gray-300 text-base font-medium rounded-xl text-gray-700 bg-white active:bg-gray-50 active:scale-95 transition-all touch-manipulation min-h-[44px] shadow-sm"
-        >
-          Start New
-        </button>
-      </div>
 
       {/* Generation Breakdown Dialog */}
       {selectedScene !== null && (() => {

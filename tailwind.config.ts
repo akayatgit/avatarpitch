@@ -54,6 +54,7 @@ const config: Config = {
           'Helvetica Neue',
           'sans-serif',
         ],
+        switzer: ['Switzer', 'sans-serif'],
         mono: [
           'SF Mono',
           'Monaco',

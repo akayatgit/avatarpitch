@@ -1,4 +1,7 @@
-import Sidebar from '@/components/Sidebar';
+import TopNav from '@/components/TopNav';
+import PromotionalBanner from '@/components/PromotionalBanner';
+import { BannerProvider } from '@/contexts/BannerContext';
+import BannerAwareMain from '@/components/BannerAwareMain';
 
 export default function AppLayout({
   children,
@@ -6,12 +9,13 @@ export default function AppLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen bg-black">
-      <Sidebar />
-      <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 min-h-screen">
-        {children}
-      </main>
-    </div>
+    <BannerProvider>
+      <div className="flex flex-col min-h-screen bg-black">
+        <PromotionalBanner />
+        <TopNav />
+        <BannerAwareMain>{children}</BannerAwareMain>
+      </div>
+    </BannerProvider>
   );
 }
 

@@ -54,7 +54,13 @@ export default function DynamicFormFields({ contentType, formData, onChange }: D
 
   const handleFieldChange = (key: string, value: any) => {
     const newData = { ...localData };
-    setNestedValue(newData, key, value);
+    // If key contains spaces (not dot notation), use it as a flat key
+    // Otherwise, use nested value setting
+    if (key.includes(' ') && !key.includes('.')) {
+      newData[key] = value;
+    } else {
+      setNestedValue(newData, key, value);
+    }
     setLocalData(newData);
     onChange(newData);
   };

@@ -37,22 +37,36 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
   };
 
   return (
-    <div className="card mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">Create Agent</h2>
+    <div className="mb-6">
+      <div className="flex items-center justify-end mb-4">
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
-          className="btn-primary text-sm min-h-[44px]"
+          className="px-3 py-1.5 bg-[#D1FE17] text-black rounded-lg hover:bg-[#B8E014] active:scale-95 transition-all duration-200 text-sm font-medium touch-manipulation flex items-center gap-1.5"
         >
-          {isOpen ? '−' : '+'}
+          {isOpen ? (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              <span>Close</span>
+            </>
+          ) : (
+            <>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              <span>Create Agent</span>
+            </>
+          )}
         </button>
       </div>
 
       {isOpen && (
-        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
+        <div className="card">
+          <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="name" className="block text-sm font-medium text-white mb-2">
               Agent Name *
             </label>
             <input
@@ -66,7 +80,7 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
           </div>
 
           <div>
-            <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="role" className="block text-sm font-medium text-white mb-2">
               Role *
             </label>
             <input
@@ -80,7 +94,7 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
           </div>
 
           <div>
-            <label htmlFor="systemPrompt" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="systemPrompt" className="block text-sm font-medium text-white mb-2">
               System Prompt
             </label>
             <textarea
@@ -93,7 +107,7 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
           </div>
 
           <div>
-            <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="prompt" className="block text-sm font-medium text-white mb-2">
               Task Prompt
             </label>
             <textarea
@@ -106,7 +120,7 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
           </div>
 
           <div>
-            <label htmlFor="temperature" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="temperature" className="block text-sm font-medium text-white mb-2">
               Temperature (0-2)
             </label>
             <input
@@ -122,13 +136,13 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
           </div>
 
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 p-4 rounded-xl border border-red-200">
+            <div className="text-sm text-red-400 bg-red-900/30 p-4 rounded-xl border border-red-800">
               {error}
             </div>
           )}
 
           {success && (
-            <div className="text-sm text-primary-600 bg-primary-50 p-4 rounded-xl border border-primary-200">
+            <div className="text-sm text-[#D1FE17] bg-[#D1FE17]/20 p-4 rounded-xl border border-[#D1FE17]/50">
               Agent created successfully!
             </div>
           )}
@@ -141,6 +155,7 @@ export default function CollapsibleAgentForm({ createAgent }: CollapsibleAgentFo
             {isSubmitting ? 'Creating...' : 'Create Agent'}
           </button>
         </form>
+        </div>
       )}
     </div>
   );

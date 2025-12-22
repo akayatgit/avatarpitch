@@ -416,7 +416,14 @@ function buildInputsSchema(inputsContract: { fields: Array<{
     
     switch (field.type) {
       case 'string':
+        // For required fields, ensure non-empty and non-whitespace strings
+        if (field.required) {
+          fieldSchema = z.string().min(1, 'Required').refine((val) => val.trim().length > 0, {
+            message: 'Required'
+          });
+        } else {
         fieldSchema = z.string();
+        }
         if (field.maxLength) {
           fieldSchema = fieldSchema.max(field.maxLength);
         }
@@ -527,10 +534,40 @@ export async function generateProject(formData: FormData) {
   // Build dynamic schema from inputsContract
   if (inputsContract?.fields && inputsContract.fields.length > 0) {
     try {
+      // Debug: Log inputs and field keys
+      console.log('[generateProject] Inputs received:', JSON.stringify(inputs, null, 2));
+      console.log('[generateProject] Field keys in inputsContract:', inputsContract.fields.map((f: any) => ({ key: f.key, label: f.label, required: f.required })));
+      
       const dynamicInputsSchema = buildInputsSchema(inputsContract);
       const validationResult = dynamicInputsSchema.safeParse(inputs);
       if (!validationResult.success) {
-        return { error: `Validation failed: ${validationResult.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}` };
+        console.log('[generateProject] Validation errors:', validationResult.error.errors);
+        
+        // Create a map of field keys to labels for better error messages
+        const fieldKeyToLabel = new Map<string, string>();
+        inputsContract.fields.forEach((field: any) => {
+          fieldKeyToLabel.set(field.key, field.label);
+        });
+        
+        // Format error messages with field labels
+        const errorMessages = validationResult.error.errors.map(e => {
+          const fieldPath = e.path.join('.');
+          // Try to find matching field by key (exact match or partial match)
+          let fieldLabel = fieldKeyToLabel.get(fieldPath);
+          if (!fieldLabel) {
+            // Try to find by matching the last part of the path
+            const lastKey = e.path[e.path.length - 1];
+            for (const [key, label] of fieldKeyToLabel.entries()) {
+              if (key.split('.').pop() === lastKey || key === lastKey) {
+                fieldLabel = label;
+                break;
+              }
+            }
+          }
+          return `${fieldLabel || fieldPath}: ${e.message}`;
+        });
+        
+        return { error: `Validation failed: ${errorMessages.join(', ')}` };
       }
     } catch (schemaError) {
       console.error('Error building dynamic schema:', schemaError);

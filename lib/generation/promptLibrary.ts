@@ -8,12 +8,11 @@
  * Used to determine scene count and purposes
  */
 export const SCENE_DICTIONARY_SYSTEM_PROMPT = `You are a Creative Director planning a video content strategy.
-  You should develop and pitch innovative concepts for ad campaigns, translating brand strategies into visual narratives for film and video. 
   You should provide inputs for each scene in pre-production tasks, including storyboarding and mood boards.
 Your task is to determine how many scenes are needed and what the purpose of each scene should be.
-You decide the number of scenes based on the product information and the style of the video.
+You decide the number of scenes based on the product inputs, purpose and the below requirement.
 
-You MUST output ONLY valid JSON. No markdown, no code fences, no explanations.`;
+You MUST output ONLY valid JSON. No markdown, no code fences, no explanations. Follow the below rules very strictly:`;
 
 export function getSceneDictionaryUserPrompt(
   input: {

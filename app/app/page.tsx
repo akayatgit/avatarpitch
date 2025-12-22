@@ -9,7 +9,7 @@ export const revalidate = 0;
 
 export default async function Dashboard() {
   console.log('[Dashboard] Function started');
-
+  
   // Fetch content types
   console.log('[Dashboard] Fetching content types...');
   let contentTypes: any[] = [];
@@ -40,9 +40,9 @@ export default async function Dashboard() {
     <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8 min-h-[calc(100vh-4rem)]">
       {/* Header */}
       <div className="mb-6 lg:mb-8">
-        <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Hauloo Apps</h1>
-        <p className="text-sm text-gray-400">Create ready-to-share content in one click — from viral effects to polished commercials, no editing needed.</p>
-      </div>
+        <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Apps</h1>
+        <p className="text-sm text-gray-400">Create ad-ready creatives instantly</p>
+          </div>
 
       {/* Content Types Grid */}
       {contentTypes.length === 0 ? (
@@ -64,35 +64,33 @@ export default async function Dashboard() {
             <Link
               key={contentType.id}
               href={`/app/create?contentTypeId=${contentType.id}`}
-              className="card cursor-pointer group hover:shadow-md transition-all duration-200 active:scale-[0.98] touch-manipulation p-0 overflow-hidden flex flex-col aspect-[9/16]"
+              className="card cursor-pointer group hover:shadow-md transition-all duration-200 active:scale-[0.98] touch-manipulation p-0 overflow-hidden flex flex-col rounded-lg"
             >
-              <div className="relative flex-1 w-full overflow-hidden bg-gray-900">
+              <div className="relative w-full overflow-hidden bg-gray-900 aspect-square rounded-t-lg">
                 {contentType.cover_image_url ? (
                   <img
                     src={contentType.cover_image_url}
                     alt={contentType.name}
-                    className="w-full h-full object-cover aspect-[9/16]"
+                    className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full aspect-[9/16] bg-gray-900 border-2 border-dashed border-gray-700 flex flex-col items-center justify-center">
+                  <div className="w-full h-full bg-gray-900 border-2 border-dashed border-gray-700 flex flex-col items-center justify-center">
                     <div className="text-4xl mb-2">📷</div>
                     <div className="text-xs text-gray-400 font-medium text-center px-2">No image</div>
                   </div>
                 )}
-                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center">
-                  <div className="opacity-0 group-hover:opacity-100 text-black text-sm px-4 py-2 bg-[#D1FE17] rounded-lg hover:bg-[#B8E014] transition-all duration-200 font-medium">
-                    Create
-                  </div>
-                </div>
               </div>
-              <div className="p-3 bg-black border-t border-gray-800">
-                <h3 className="text-sm font-semibold text-white mb-1 line-clamp-1">{contentType.name}</h3>
+              <div className="p-4 bg-black border-t border-gray-800 flex-shrink-0 rounded-b-lg">
+                <h3 className="text-lg font-semibold text-white mb-1 line-clamp-1">{contentType.name}</h3>
                 {contentType.description && (
-                  <p className="text-xs text-gray-400 mb-2 line-clamp-2">{contentType.description}</p>
+                  <p className="text-xs text-gray-400 mb-3 line-clamp-2">{contentType.description}</p>
                 )}
-                {contentType.category && (
-                  <span className="text-xs text-gray-500">{contentType.category}</span>
-                )}
+                <div className="w-full text-black text-sm px-4 py-2 bg-[#D1FE17] rounded-lg hover:bg-[#B8E014] transition-all duration-200 font-bold flex items-center justify-center gap-2">
+                  <span>Create</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
               </div>
             </Link>
           ))}

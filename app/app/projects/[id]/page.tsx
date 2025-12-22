@@ -19,52 +19,103 @@ export default async function ProjectDetailPage({
   const projectId = resolvedParams.id;
 
   try {
-    const { data: project, error } = await supabaseAdmin
-      .from('projects')
-      .select('*')
+    // Try content_creation_requests first (new format)
+    let { data: request, error: requestError } = await supabaseAdmin
+      .from('content_creation_requests')
+      .select(`
+        id,
+        content_type_id,
+        inputs,
+        generated_output,
+        status,
+        video_url,
+        created_at,
+        content_types:content_type_id (
+          name
+        )
+      `)
       .eq('id', projectId)
       .single();
 
-    if (error && isSupabaseNetworkError(error)) {
-      return <NetworkError message="Unable to load project. Please check your internet connection." />;
+    let result: any = null;
+    let projectName = 'Project';
+
+    if (!requestError && request) {
+      // Handle content_creation_requests format
+      const contentType = Array.isArray(request.content_types) 
+        ? request.content_types[0] 
+        : request.content_types;
+      
+      let inputs: any = {};
+      try {
+        inputs = typeof request.inputs === 'string' 
+          ? JSON.parse(request.inputs) 
+          : request.inputs || {};
+      } catch (e) {
+        console.error('Error parsing inputs:', e);
+      }
+      
+      let generatedOutput: any = {};
+      try {
+        generatedOutput = typeof request.generated_output === 'string'
+          ? JSON.parse(request.generated_output)
+          : request.generated_output || {};
+      } catch (e) {
+        console.error('Error parsing generated_output:', e);
+      }
+
+      const productName = inputs['PRODUCT NAME'] || 
+                         inputs['product name'] || 
+                         inputs.subject?.name || 
+                         'Untitled Project';
+      projectName = `${contentType?.name || 'Content'} - ${productName}`;
+
+      result = {
+        scenes: generatedOutput?.scenes || [],
+        renderingSpec: {},
+        videoUrl: request.video_url || '',
+        templateName: contentType?.name || 'Unknown Template',
+        projectId: request.id,
+      };
+    } else {
+      // Fallback to projects table (legacy format)
+      const { data: project, error } = await supabaseAdmin
+        .from('projects')
+        .select('*')
+        .eq('id', projectId)
+        .single();
+
+      if (error && isSupabaseNetworkError(error)) {
+        return <NetworkError message="Unable to load project. Please check your internet connection." />;
+      }
+
+      if (!project || error) {
+        console.error('Project fetch error:', error);
+        notFound();
+      }
+
+      projectName = project.name || 'Project';
+      result = {
+        scenes: (project.scenes as any[]) || [],
+        renderingSpec: (project.rendering_spec as any) || {},
+        videoUrl: project.video_url || '',
+        templateName: project.template_name || 'Unknown Template',
+        projectId: project.id,
+      };
     }
 
-    if (!project || error) {
-      console.error('Project fetch error:', error);
+    if (!result) {
       notFound();
     }
-
-    // Transform database project to ProjectResults format
-    const result = {
-      scenes: (project.scenes as any[]) || [],
-      renderingSpec: (project.rendering_spec as any) || {},
-      videoUrl: project.video_url || '',
-      templateName: project.template_name || 'Unknown Template',
-      projectId: project.id,
-    };
 
     return (
       <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">
         <div className="mb-4 sm:mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{project.name}</h1>
-              <div className="flex flex-wrap gap-2 text-sm text-gray-600">
-                <span>Content Type: {project.template_name || 'Unknown'}</span>
-                <span>•</span>
-                <span>Platform: {project.platform}</span>
-                {project.created_at && (
-                  <>
-                    <span>•</span>
-                    <span>
-                      Created: {new Date(project.created_at).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </span>
-                  </>
-                )}
+              <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">{projectName}</h1>
+              <div className="flex flex-wrap gap-2 text-sm text-gray-400">
+                <span>Content Type: {result.templateName || 'Unknown'}</span>
               </div>
             </div>
             <Link
