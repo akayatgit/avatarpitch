@@ -47,10 +47,35 @@ interface ProjectResultsProps {
         styleNotes?: string;
       } | string; // Support both object and string for backward compatibility
       compositionNotes?: string;
+      generationContext?: {
+        inputs: any;
+        contentTypeName: string;
+        systemPrompt: string;
+        userPromptContext?: {
+          goal?: string;
+          platform?: string;
+          language?: string;
+          tone?: string;
+          subjectName?: string;
+          subjectType?: string;
+          offerText?: string;
+          audienceDesc?: string;
+          productInfo?: string;
+          storyInfo?: string;
+          sceneCount?: number;
+          rules?: any;
+        };
+        scenePurpose?: string;
+        sceneSpecificContext?: {
+          purpose?: string;
+          camera?: any;
+          environment?: any;
+          onScreenText?: any;
+        };
+      };
       // Legacy fields (for backward compatibility)
       index?: number;
       shotType?: string;
-      imagePrompt?: string;
       notes?: string;
       durationSeconds?: number;
       agentContributions?: AgentContribution[];

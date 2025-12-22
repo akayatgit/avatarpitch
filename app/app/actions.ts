@@ -464,21 +464,21 @@ function buildInputsSchema(inputsContract: { fields: Array<{
   }
   
   // Build nested object schema recursively
-  function buildNestedSchema(obj: Record<string, any>): z.ZodTypeAny {
-    const shape: Record<string, z.ZodTypeAny> = {};
+  function buildNestedSchema(obj: Record<string, any>): z.ZodRawShape {
+    const shape: z.ZodRawShape = {};
     for (const [key, value] of Object.entries(obj)) {
       if (value && typeof value === 'object' && !('_def' in value)) {
-        // It's a nested object
+        // It's a nested object - recursively build its shape
         shape[key] = z.object(buildNestedSchema(value));
       } else {
         // It's a Zod schema
         shape[key] = value;
       }
     }
-    return z.object(shape);
+    return shape;
   }
   
-  return buildNestedSchema(schemaShape);
+  return z.object(buildNestedSchema(schemaShape));
 }
 
 export async function generateProject(formData: FormData) {

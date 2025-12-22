@@ -173,7 +173,7 @@ export default function TemplateList({ templates }: TemplateListProps) {
               </div>
             )}
             <input
-              ref={(el) => (fileInputRefs.current[template.id] = el)}
+              ref={(el) => { fileInputRefs.current[template.id] = el; }}
               type="file"
               accept="image/*"
               className="hidden"

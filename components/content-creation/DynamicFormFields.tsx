@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ContentTypeDefinition } from '../lib/schemas';
+import { ContentTypeDefinition } from '@/lib/schemas';
 
 interface DynamicFormFieldsProps {
   contentType: ContentTypeDefinition | null;
