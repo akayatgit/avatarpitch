@@ -352,6 +352,8 @@ export async function updateTemplate(formData: FormData) {
 
   revalidatePath('/app/templates');
   revalidatePath(`/app/templates/${templateId}`);
+  revalidatePath('/app/create'); // Revalidate create page to show updated content types
+  revalidatePath('/app'); // Revalidate app root to ensure all pages get fresh data
   return { success: true, data };
 }
 

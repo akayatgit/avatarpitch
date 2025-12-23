@@ -4,10 +4,18 @@ import { getModelConfig, ImageGenerationModel } from '@/lib/replicateImageGenera
 
 export async function POST(request: NextRequest) {
   try {
-    const { scenePrompt, referenceImageUrl, model, screenshotUrl, numImages, aspectRatio, size } = await request.json();
+    const { scenePrompt, referenceImageUrls, model, numImages, aspectRatio, size } = await request.json();
 
     if (!process.env.REPLICATE_API_TOKEN) {
       return NextResponse.json({ error: 'REPLICATE_API_TOKEN not configured' }, { status: 500 });
+    }
+
+    // Ensure referenceImageUrls is an array
+    const imageUrls = Array.isArray(referenceImageUrls) ? referenceImageUrls : 
+                     (referenceImageUrls ? [referenceImageUrls] : []);
+
+    if (imageUrls.length === 0) {
+      return NextResponse.json({ error: 'At least one reference image URL is required' }, { status: 400 });
     }
 
     const replicate = new Replicate({
@@ -16,10 +24,9 @@ export async function POST(request: NextRequest) {
 
     const modelConfig = getModelConfig(model as ImageGenerationModel);
     
-    // Build input using the model config with user-provided options
+    // Build input using the model config with all reference image URLs
     const input = modelConfig.buildInput(
-      screenshotUrl || referenceImageUrl, // Use screenshot if available, otherwise reference
-      referenceImageUrl,
+      imageUrls, // All uploaded reference image URLs
       scenePrompt,
       null, // outfitUrl - can be added later
       numImages || 1,

@@ -59,7 +59,11 @@ export default function CreateProjectForm({ templates, generateProject, preselec
     const fetchContentType = async () => {
       try {
         console.log('[CreateProjectForm] Fetching content type:', selectedTemplateId);
-        const response = await fetch(`/api/content-types/${selectedTemplateId}`);
+        // Add cache-busting query parameter to ensure fresh data
+        const cacheBuster = `?t=${Date.now()}`;
+        const response = await fetch(`/api/content-types/${selectedTemplateId}${cacheBuster}`, {
+          cache: 'no-store', // Prevent browser caching
+        });
         
         if (response.ok) {
           const data = await response.json();

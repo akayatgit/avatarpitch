@@ -429,7 +429,6 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
       const referenceImageUrls = await Promise.all(
         referenceImages.map(file => uploadImageToServer(file))
       );
-      const primaryReferenceUrl = referenceImageUrls[0];
 
       // Generate images for each scene
       for (const scene of result.scenes) {
@@ -462,9 +461,8 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 scenePrompt: comprehensivePrompt,
-                referenceImageUrl: primaryReferenceUrl,
+                referenceImageUrls: referenceImageUrls, // Send all uploaded reference image URLs
                 model,
-                screenshotUrl: primaryReferenceUrl, // Using reference as screenshot for now
                 numImages: 1, // Always request 1 image per call
                 aspectRatio,
                 size,

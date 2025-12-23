@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
+// Disable caching for API routes to ensure fresh data
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -65,7 +69,17 @@ export async function GET(
       inputsContract: JSON.stringify(contentTypeDefinition.inputsContract, null, 2)
     });
 
-    return NextResponse.json({ contentType: contentTypeDefinition });
+    // Set cache control headers to prevent caching
+    return NextResponse.json(
+      { contentType: contentTypeDefinition },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    );
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch content type' },

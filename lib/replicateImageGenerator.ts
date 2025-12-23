@@ -1,6 +1,6 @@
 interface ModelConfig {
   modelId: string;
-  buildInput: (imageUrl: string, referenceImageUrl: string, customPrompt?: string, outfitUrl?: string | null, numImages?: number, aspectRatio?: string, size?: string) => any;
+  buildInput: (referenceImageUrls: string[], customPrompt?: string, outfitUrl?: string | null, numImages?: number, aspectRatio?: string, size?: string) => any;
   processOutput: (output: any) => Promise<Array<{ url: string; file?: any }>>;
 }
 
@@ -44,8 +44,8 @@ function getDimensions(aspectRatio: string, size: string): { width: number; heig
 // Seedream-4.5 model handler
 const seedream4Config: ModelConfig = {
   modelId: 'bytedance/seedream-4.5',
-  buildInput: (imageUrl: string, referenceImageUrl: string, customPrompt?: string, outfitUrl?: string | null, numImages: number = 1, aspectRatio: string = '9:16', size: string = '4K') => {
-    const imageInput = [imageUrl, referenceImageUrl];
+  buildInput: (referenceImageUrls: string[], customPrompt?: string, outfitUrl?: string | null, numImages: number = 1, aspectRatio: string = '9:16', size: string = '4K') => {
+    const imageInput = [...referenceImageUrls];
     if (outfitUrl) {
       imageInput.push(outfitUrl);
     }
@@ -98,8 +98,8 @@ const seedream4Config: ModelConfig = {
 // Nano-banana-pro model handler
 const nanoBananaProConfig: ModelConfig = {
   modelId: 'google/nano-banana-pro',
-  buildInput: (imageUrl: string, referenceImageUrl: string, customPrompt?: string, outfitUrl?: string | null, numImages: number = 1, aspectRatio: string = '9:16', size: string = '4K') => {
-    const imageInput = [imageUrl, referenceImageUrl];
+  buildInput: (referenceImageUrls: string[], customPrompt?: string, outfitUrl?: string | null, numImages: number = 1, aspectRatio: string = '9:16', size: string = '4K') => {
+    const imageInput = [...referenceImageUrls];
     if (outfitUrl) {
       imageInput.push(outfitUrl);
     }
@@ -142,8 +142,8 @@ const nanoBananaProConfig: ModelConfig = {
 // Nano-banana model handler
 const nanoBananaConfig: ModelConfig = {
   modelId: 'google/nano-banana',
-  buildInput: (imageUrl: string, referenceImageUrl: string, customPrompt?: string, outfitUrl?: string | null, numImages: number = 1, aspectRatio: string = '9:16', size: string = '4K') => {
-    const imageInput = [imageUrl, referenceImageUrl];
+  buildInput: (referenceImageUrls: string[], customPrompt?: string, outfitUrl?: string | null, numImages: number = 1, aspectRatio: string = '9:16', size: string = '4K') => {
+    const imageInput = [...referenceImageUrls];
     if (outfitUrl) {
       imageInput.push(outfitUrl);
     }

@@ -81,13 +81,13 @@ export default async function Dashboard() {
                 )}
               </div>
               <div className="p-4 bg-black border-t border-gray-800 flex-shrink-0 rounded-b-lg">
-                <h3 className="text-lg font-semibold text-white mb-1 line-clamp-1">{contentType.name}</h3>
+                <h3 className="text-base font-semibold text-white mb-1 line-clamp-1">{contentType.name}</h3>
                 {contentType.description && (
                   <p className="text-xs text-gray-400 mb-3 line-clamp-2">{contentType.description}</p>
                 )}
-                <div className="w-full text-black text-sm px-4 py-2 bg-[#D1FE17] rounded-lg hover:bg-[#B8E014] transition-all duration-200 font-bold flex items-center justify-center gap-2">
+                <div className="w-full text-black text-xs px-4 py-2 bg-[#D1FE17] rounded-lg hover:bg-[#B8E014] transition-all duration-200 font-bold flex items-center justify-center gap-2">
                   <span>Create</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                   </svg>
                 </div>
