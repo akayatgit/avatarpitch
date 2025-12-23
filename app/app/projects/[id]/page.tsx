@@ -19,8 +19,8 @@ export default async function ProjectDetailPage({
   const projectId = resolvedParams.id;
 
   try {
-    // Try content_creation_requests first (new format)
-    let { data: request, error: requestError } = await supabaseAdmin
+    // Fetch from content_creation_requests
+    const { data: request, error: requestError } = await supabaseAdmin
       .from('content_creation_requests')
       .select(`
         id,
@@ -37,76 +37,50 @@ export default async function ProjectDetailPage({
       .eq('id', projectId)
       .single();
 
-    let result: any = null;
-    let projectName = 'Project';
-
-    if (!requestError && request) {
-      // Handle content_creation_requests format
-      const contentType = Array.isArray(request.content_types) 
-        ? request.content_types[0] 
-        : request.content_types;
-      
-      let inputs: any = {};
-      try {
-        inputs = typeof request.inputs === 'string' 
-          ? JSON.parse(request.inputs) 
-          : request.inputs || {};
-      } catch (e) {
-        console.error('Error parsing inputs:', e);
-      }
-      
-      let generatedOutput: any = {};
-      try {
-        generatedOutput = typeof request.generated_output === 'string'
-          ? JSON.parse(request.generated_output)
-          : request.generated_output || {};
-      } catch (e) {
-        console.error('Error parsing generated_output:', e);
-      }
-
-      const productName = inputs['PRODUCT NAME'] || 
-                         inputs['product name'] || 
-                         inputs.subject?.name || 
-                         'Untitled Project';
-      projectName = `${contentType?.name || 'Content'} - ${productName}`;
-
-      result = {
-        scenes: generatedOutput?.scenes || [],
-        renderingSpec: {},
-        videoUrl: request.video_url || '',
-        templateName: contentType?.name || 'Unknown Template',
-        projectId: request.id,
-      };
-    } else {
-      // Fallback to projects table (legacy format)
-      const { data: project, error } = await supabaseAdmin
-        .from('projects')
-        .select('*')
-        .eq('id', projectId)
-        .single();
-
-      if (error && isSupabaseNetworkError(error)) {
-        return <NetworkError message="Unable to load project. Please check your internet connection." />;
-      }
-
-      if (!project || error) {
-        console.error('Project fetch error:', error);
-        notFound();
-      }
-
-      projectName = project.name || 'Project';
-      result = {
-        scenes: (project.scenes as any[]) || [],
-        renderingSpec: (project.rendering_spec as any) || {},
-        videoUrl: project.video_url || '',
-        templateName: project.template_name || 'Unknown Template',
-        projectId: project.id,
-      };
+    if (requestError && isSupabaseNetworkError(requestError)) {
+      return <NetworkError message="Unable to load project. Please check your internet connection." />;
     }
 
-    if (!result) {
+    if (!request || requestError) {
+      console.error('Project fetch error:', requestError);
       notFound();
     }
+
+    // Handle content_creation_requests format
+    const contentType = Array.isArray(request.content_types) 
+      ? request.content_types[0] 
+      : request.content_types;
+    
+    let inputs: any = {};
+    try {
+      inputs = typeof request.inputs === 'string' 
+        ? JSON.parse(request.inputs) 
+        : request.inputs || {};
+    } catch (e) {
+      console.error('Error parsing inputs:', e);
+    }
+    
+    let generatedOutput: any = {};
+    try {
+      generatedOutput = typeof request.generated_output === 'string'
+        ? JSON.parse(request.generated_output)
+        : request.generated_output || {};
+    } catch (e) {
+      console.error('Error parsing generated_output:', e);
+    }
+
+    const productName = inputs['PRODUCT NAME'] || 
+                       inputs['product name'] || 
+                       inputs.subject?.name || 
+                       'Untitled Project';
+    const projectName = `${contentType?.name || 'Content'} - ${productName}`;
+
+    const result = {
+      scenes: generatedOutput?.scenes || [],
+      videoUrl: request.video_url || '',
+      templateName: contentType?.name || 'Unknown Template',
+      projectId: request.id,
+    };
 
     return (
       <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">

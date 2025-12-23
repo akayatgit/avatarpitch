@@ -82,15 +82,6 @@ interface ProjectResultsProps {
       finalAssembler?: FinalAssembler;
       imageUrls?: string[]; // Generated image URLs
     }>;
-    renderingSpec?: {
-      aspectRatio?: string;
-      style?: string;
-      imageModelHint?: string;
-      colorGrade?: string;
-      lightingMood?: string;
-      musicMood?: string; // Legacy
-      transitions?: string; // Legacy
-    };
     videoUrl?: string;
     templateName?: string;
     contentTypeName?: string;
@@ -153,7 +144,6 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
       template: result.templateName || result.contentTypeName,
       generatedAt: new Date().toISOString(),
       scenes: result.scenes,
-      renderingSpec: result.renderingSpec,
       videoUrl: result.videoUrl,
     };
 

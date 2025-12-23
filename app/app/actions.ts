@@ -659,16 +659,29 @@ export async function updateProjectImages(projectId: string, generatedImages: Ar
   }
 
   try {
-    // Fetch the current project
-    const { data: project, error: fetchError } = await supabaseAdmin
-      .from('projects')
-      .select('scenes')
+    // Fetch from content_creation_requests
+    const { data: request, error: fetchError } = await supabaseAdmin
+      .from('content_creation_requests')
+      .select('generated_output')
       .eq('id', projectId)
       .single();
 
-    if (fetchError || !project) {
+    if (fetchError || !request) {
       return { error: 'Project not found' };
     }
+
+    // Parse generated_output
+    let generatedOutput: any = {};
+    try {
+      generatedOutput = typeof request.generated_output === 'string'
+        ? JSON.parse(request.generated_output)
+        : request.generated_output || {};
+    } catch (e) {
+      console.error('Error parsing generated_output:', e);
+      generatedOutput = {};
+    }
+
+    const scenes = generatedOutput.scenes || [];
 
     // Group images by scene index
     const imagesByScene = new Map<number, string[]>();
@@ -680,19 +693,28 @@ export async function updateProjectImages(projectId: string, generatedImages: Ar
     });
 
     // Update scenes with image URLs
-    const updatedScenes = (project.scenes as any[]).map((scene: any) => {
-      const sceneImages = imagesByScene.get(scene.index) || [];
+    const updatedScenes = scenes.map((scene: any, idx: number) => {
+      const sceneIndex = scene.index ?? (idx + 1);
+      const sceneImages = imagesByScene.get(sceneIndex) || [];
+      // Merge new images with existing ones, avoiding duplicates
+      const existingUrls = scene.imageUrls || [];
+      const newUrls = sceneImages.filter((url: string) => !existingUrls.includes(url));
       return {
         ...scene,
-        imageUrls: sceneImages.length > 0 ? sceneImages : (scene.imageUrls || []),
+        imageUrls: existingUrls.length > 0 || newUrls.length > 0
+          ? [...existingUrls, ...newUrls]
+          : [],
       };
     });
 
-    // Update the project
+    // Update content_creation_requests
     const { error: updateError } = await supabaseAdmin
-      .from('projects')
+      .from('content_creation_requests')
       .update({
-        scenes: updatedScenes,
+        generated_output: {
+          ...generatedOutput,
+          scenes: updatedScenes,
+        },
         updated_at: new Date().toISOString(),
       })
       .eq('id', projectId);
@@ -702,6 +724,7 @@ export async function updateProjectImages(projectId: string, generatedImages: Ar
     }
 
     revalidatePath('/app');
+    revalidatePath(`/app/projects/${projectId}`);
     return { success: true };
   } catch (error) {
     return {

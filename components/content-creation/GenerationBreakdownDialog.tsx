@@ -142,14 +142,14 @@ export default function GenerationBreakdownDialog({
                         <div className="pt-4 space-y-3">
                           <div>
                             <h4 className="text-xs font-semibold text-gray-700 mb-2">Agent Output:</h4>
-                            <pre className="text-xs bg-white p-3 rounded border border-gray-200 overflow-x-auto">
+                            <pre className="text-xs bg-white text-gray-900 p-3 rounded border border-gray-200 overflow-x-auto">
                               {JSON.stringify(agentOutput, null, 2)}
                             </pre>
                           </div>
                           {contrib.input && Object.keys(contrib.input).length > 0 && (
                             <div>
                               <h4 className="text-xs font-semibold text-gray-700 mb-2">Agent Input:</h4>
-                              <pre className="text-xs bg-white p-3 rounded border border-gray-200 overflow-x-auto max-h-40 overflow-y-auto">
+                              <pre className="text-xs bg-white text-gray-900 p-3 rounded border border-gray-200 overflow-x-auto max-h-40 overflow-y-auto">
                                 {JSON.stringify(contrib.input, null, 2)}
                               </pre>
                             </div>

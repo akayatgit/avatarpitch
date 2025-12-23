@@ -18,15 +18,6 @@ interface ProjectResultsClientProps {
       finalAssembler?: any;
       imageUrls?: string[];
     }>;
-    renderingSpec: {
-      aspectRatio: string;
-      style: string;
-      imageModelHint?: string;
-      colorGrade?: string;
-      lightingMood?: string;
-      musicMood?: string;
-      transitions?: string;
-    };
     videoUrl: string;
     templateName: string;
     projectId?: string;
