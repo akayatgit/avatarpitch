@@ -104,13 +104,15 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
   const [showImageDialog, setShowImageDialog] = useState(false);
   const [generatingImages, setGeneratingImages] = useState(false);
+  const [backgroundGenerationStarted, setBackgroundGenerationStarted] = useState(false);
   
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
   const activeRequestsRef = useRef<Map<string, AbortController>>(new Map());
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load existing images from scene.imageUrls when component mounts or result changes
-  useEffect(() => {
+  const loadImagesFromScenes = () => {
     const existingImages: GeneratedImage[] = result.scenes.flatMap((scene, idx) => {
       const sceneIndex = scene.index ?? (idx + 1);
       return (scene.imageUrls || []).map((url, imgIdx) => ({
@@ -124,7 +126,64 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
     if (existingImages.length > 0) {
       setGeneratedImages(existingImages);
     }
+  };
+
+  useEffect(() => {
+    loadImagesFromScenes();
   }, [result.scenes]);
+
+  // Set up polling to check for new images if background generation is in progress
+  useEffect(() => {
+    if (backgroundGenerationStarted && result.projectId) {
+      // Poll every 10 seconds to check for new images
+      refreshIntervalRef.current = setInterval(async () => {
+        try {
+          // Fetch updated project data
+          const response = await fetch(`/api/project/${result.projectId}`);
+          if (response.ok) {
+            const data = await response.json();
+            if (data.scenes) {
+              // Update result with new scenes data
+              const updatedImages: GeneratedImage[] = data.scenes.flatMap((scene: any, idx: number) => {
+                const sceneIndex = scene.index ?? (idx + 1);
+                return (scene.imageUrls || []).map((url: string, imgIdx: number) => ({
+                  sceneIndex,
+                  url,
+                  generating: false,
+                  imageIndex: imgIdx,
+                }));
+              });
+              
+              // Update images if we have any (even if count is same, URLs might have changed)
+              setGeneratedImages(prev => {
+                // Only update if we actually have new or different images
+                if (updatedImages.length > 0 && JSON.stringify(updatedImages) !== JSON.stringify(prev)) {
+                  return updatedImages;
+                }
+                return prev;
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Error polling for new images:', error);
+        }
+      }, 10000); // Poll every 10 seconds
+
+      // Clean up interval on unmount or when generation stops
+      return () => {
+        if (refreshIntervalRef.current) {
+          clearInterval(refreshIntervalRef.current);
+          refreshIntervalRef.current = null;
+        }
+      };
+    } else {
+      // Clear interval if background generation is not active
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    }
+  }, [backgroundGenerationStarted, result.projectId]);
 
   const toggleScene = (sceneIndex: number) => {
     setExpandedScenes(prev => {
@@ -416,13 +475,6 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
   const handleGenerateImages = async (referenceImages: File[], model: string, numImages: number, aspectRatio: string, size: string) => {
     setShowImageDialog(false);
     setGeneratingImages(true);
-    setGeneratedImages([]);
-
-    // Track generated images locally for saving to database
-    const successfulImages: Array<{ sceneIndex: number; url: string }> = [];
-    // Track active fetch requests for cancellation
-    const activeRequests = activeRequestsRef.current;
-    activeRequests.clear(); // Clear any previous requests
 
     try {
       // Upload reference images
@@ -430,149 +482,87 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
         referenceImages.map(file => uploadImageToServer(file))
       );
 
-      // Generate images for each scene
-      for (const scene of result.scenes) {
-        const sceneIndex = scene.index ?? (result.scenes.indexOf(scene) + 1);
-        const comprehensivePrompt = buildComprehensiveScenePrompt(scene);
-        
-        if (!comprehensivePrompt) {
-          console.warn(`Skipping scene ${sceneIndex}: no scene data available`);
-          continue;
-        }
-        
-        // Add placeholders for this scene (one per image requested)
-        for (let i = 0; i < numImages; i++) {
-          setGeneratedImages(prev => [
-            ...prev,
-            { sceneIndex, url: '', generating: true, imageIndex: i },
-          ]);
-        }
-
-        // Make multiple API calls (one per requested image)
-        for (let imageIndex = 0; imageIndex < numImages; imageIndex++) {
-          // Create abort controller for this request
-          const abortController = new AbortController();
-          const requestKey = `${sceneIndex}-${imageIndex}`;
-          activeRequests.set(requestKey, abortController);
-
-          try {
-            const response = await fetch('/api/generate-image', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                scenePrompt: comprehensivePrompt,
-                referenceImageUrls: referenceImageUrls, // Send all uploaded reference image URLs
-                model,
-                numImages: 1, // Always request 1 image per call
-                aspectRatio,
-                size,
-              }),
-              signal: abortController.signal,
-            });
-
-            // Check if request was aborted
-            if (abortController.signal.aborted) {
-              continue;
-            }
-
-            if (!response.ok) {
-              throw new Error('Failed to generate image');
-            }
-
-            const data = await response.json();
-            
-            // Check again if request was aborted after response
-            if (abortController.signal.aborted) {
-              continue;
-            }
-            
-            // Update the specific placeholder with the generated image
-            if (data.images && data.images.length > 0) {
-              const imageUrl = data.images[0];
-              successfulImages.push({
-                sceneIndex,
-                url: imageUrl,
-              });
-
-              setGeneratedImages(prev => {
-                const updated = [...prev];
-                const index = updated.findIndex(
-                  img => img.sceneIndex === sceneIndex && 
-                         img.generating && 
-                         (img.imageIndex ?? 0) === imageIndex
-                );
-                if (index !== -1) {
-                  updated[index] = {
-                    sceneIndex,
-                    url: imageUrl,
-                    generating: false,
-                    imageIndex: imageIndex,
-                  };
-                }
-                return updated;
-              });
-            }
-          } catch (error: any) {
-            // Ignore abort errors
-            if (error.name === 'AbortError') {
-              console.log(`Image generation ${imageIndex + 1} for scene ${sceneIndex} was skipped`);
-              continue;
-            }
-            console.error(`Error generating image ${imageIndex + 1} for scene ${sceneIndex}:`, error);
-            // Remove failed placeholder
-            setGeneratedImages(prev =>
-              prev.filter(img => !(
-                img.sceneIndex === sceneIndex && 
-                img.generating && 
-                (img.imageIndex ?? 0) === imageIndex
-              ))
-            );
-          } finally {
-            activeRequests.delete(requestKey);
-          }
-        }
+      // Check if projectId is available (required for background generation)
+      if (!result.projectId) {
+        alert('Project ID is missing. Cannot start background image generation.');
+        setGeneratingImages(false);
+        return;
       }
 
-      // Save generated images to database if projectId is available
-      if (result.projectId && successfulImages.length > 0) {
-        try {
-          const saveResult = await updateProjectImages(result.projectId, successfulImages);
-          if (saveResult.error) {
-            console.error('Error saving images to database:', saveResult.error);
-          } else {
-            console.log('Images saved to database successfully');
-          }
-        } catch (error) {
-          console.error('Error saving images to database:', error);
-        }
+      // Start background image generation
+      const response = await fetch('/api/generate-all-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: result.projectId,
+          scenes: result.scenes,
+          referenceImageUrls: referenceImageUrls,
+          model,
+          numImages,
+          aspectRatio,
+          size,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start image generation');
       }
+
+      const data = await response.json();
+      
+      // Show success message
+      alert(
+        'Image generation started in the background!\n\n' +
+        'Images will be generated and saved automatically even if you close this page.\n' +
+        'You can refresh the page later to see the generated images.'
+      );
+
+      // Mark that background generation has started
+      setBackgroundGenerationStarted(true);
+      setGeneratingImages(false);
+      
     } catch (error) {
-      console.error('Error in image generation:', error);
-    } finally {
+      console.error('Error starting image generation:', error);
+      alert(
+        error instanceof Error 
+          ? `Failed to start image generation: ${error.message}`
+          : 'Failed to start image generation. Please try again.'
+      );
       setGeneratingImages(false);
     }
   };
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-        <p className="text-sm sm:text-base text-green-800 font-medium">Project generated successfully!</p>
-        <p className="text-xs sm:text-sm text-green-600 mt-1">
-          Content Type: {result.templateName || result.contentTypeName || 'Unknown'}
-        </p>
-      </div>
+      {backgroundGenerationStarted && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin mt-0.5"></div>
+            <div className="flex-1">
+              <p className="text-sm sm:text-base text-white font-medium">
+                Images are being generated in the background
+              </p>
+              <p className="text-xs sm:text-sm text-gray-400 mt-1">
+                Images will be saved automatically even if you close this page. 
+                New images will appear automatically, or you can refresh the page to see updates.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
-      <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-200">
+      <div className="bg-black rounded-xl p-4 sm:p-6 shadow-sm border border-gray-800">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900">Generated Scenes</h2>
+          <h2 className="text-base sm:text-lg font-semibold text-white">Generated Scenes</h2>
           <button
             onClick={() => setShowImageDialog(true)}
-            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+            className="px-4 py-2 bg-[#D1FE17] text-black rounded-lg hover:bg-[#B8E014] active:bg-[#9FC211] transition-all duration-200 text-sm font-medium"
           >
             Generate Images
           </button>
-          </div>
-        <div className="space-y-3 sm:space-y-4">
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
           {result.scenes.map((scene: any, idx: number) => {
             // Support both new and old schema formats
             const sceneIndex = scene.index ?? (idx + 1);
@@ -588,120 +578,184 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
               : scene.onScreenText?.text ?? '';
             
             const isExpanded = expandedScenes.has(sceneIndex);
-            const previewText = imagePrompt && imagePrompt.length > 100 
-              ? imagePrompt.substring(0, 100) + '...' 
-              : imagePrompt || 'No prompt available';
+            
+            // Get the first generated image for this scene as cover
+            const sceneImages = generatedImages.filter(img => img.sceneIndex === sceneIndex && !img.generating);
+            const coverImage = sceneImages.length > 0 ? sceneImages[0].url : null;
+            // Fallback to scene.imageUrls if generatedImages doesn't have it yet
+            const fallbackCoverImage = scene.imageUrls && scene.imageUrls.length > 0 ? scene.imageUrls[0] : null;
+            const displayImage = coverImage || fallbackCoverImage;
 
             return (
-              <div key={sceneIndex} className="border border-gray-200 rounded-xl overflow-hidden transition-all">
+              <div 
+                key={sceneIndex} 
+                className="border border-gray-800 rounded-lg overflow-hidden transition-all hover:shadow-md bg-black flex flex-col"
+              >
+                {/* Image Cover */}
                 <div 
-                  className="p-4 cursor-pointer hover:bg-gray-50 active:bg-gray-100 transition-colors"
-                  onClick={() => toggleScene(sceneIndex)}
+                  className="relative w-full aspect-[9/16] bg-gray-100 cursor-pointer group"
+                  onClick={() => {
+                    if (displayImage) {
+                      setSelectedImage({ sceneIndex, url: displayImage, generating: false });
+                    } else {
+                      toggleScene(sceneIndex);
+                    }
+                  }}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-sm sm:text-base font-medium text-gray-900">Scene {sceneIndex}</h3>
-                <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-lg font-medium">
-                  {scenePurpose}
-                </span>
-                        {/* Always show info icon if generation context exists */}
-                        {(scene.generationContext || scene.agentContributions) && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedScene(sceneIndex);
-                            }}
-                            className="p-1 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                            title="View generation breakdown"
-                          >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              className="h-4 w-4"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
-                          </button>
-                        )}
+                  {displayImage ? (
+                    <>
+                      <img
+                        src={displayImage}
+                        alt={`Scene ${sceneIndex}`}
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center">
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium">
+                          {sceneImages.length > 1 && (
+                            <span className="bg-black bg-opacity-60 px-1.5 py-0.5 rounded text-xs">
+                              {sceneImages.length} images
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      {!isExpanded && (
-                        <p className="text-xs sm:text-sm text-gray-600">
-                          <span className="font-medium">Image Prompt:</span> {previewText}
-                        </p>
-                      )}
+                    </>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
+                      <div className="text-center p-2">
+                        <svg
+                          className="w-8 h-8 mx-auto text-gray-400 mb-1"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
+                        </svg>
+                        <p className="text-[10px] text-gray-500">No image</p>
+                      </div>
                     </div>
-                    <button
-                      className="ml-2 text-gray-400 hover:text-gray-600 transition-colors"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleScene(sceneIndex);
-                      }}
-                    >
-                      <svg
-                        className={`w-5 h-5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
+                  )}
+                  {/* Scene number badge */}
+                  <div className="absolute top-1.5 left-1.5">
+                    <span className="bg-black bg-opacity-60 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
+                      {sceneIndex}
+                    </span>
                   </div>
-              </div>
-                
-                {isExpanded && (
-                  <div className="px-4 pb-4 pt-0 border-t border-gray-100">
-                    <div className="pt-4 space-y-2">
+                </div>
+
+                {/* Card Content */}
+                <div className="p-2 flex-1 flex flex-col">
+                  <div className="flex items-start justify-between mb-1">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-xs font-semibold text-white mb-0.5 truncate">Scene {sceneIndex}</h3>
+                      <p className="text-[10px] text-gray-400 line-clamp-2 leading-tight">
+                        {imagePrompt || 'No prompt available'}
+                      </p>
+                    </div>
+                    {/* Info icon */}
+                    {(scene.generationContext || scene.agentContributions) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedScene(sceneIndex);
+                        }}
+                        className="p-0.5 text-gray-400 hover:text-[#D1FE17] hover:bg-[#D1FE17]/20 rounded transition-colors flex-shrink-0 ml-1"
+                        title="View generation breakdown"
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-3 w-3"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Expandable Details */}
+                  {isExpanded && (
+                    <div className="mt-1 pt-1 border-t border-gray-800 space-y-1.5">
                       {imagePrompt && (
-                        <p className="text-xs sm:text-sm text-gray-600">
-                          <span className="font-medium">Image Prompt:</span> {imagePrompt}
-                        </p>
+                        <div>
+                          <p className="text-[10px] font-medium text-gray-300 mb-0.5">Image Prompt:</p>
+                          <p className="text-[10px] text-gray-400">{imagePrompt}</p>
+                        </div>
                       )}
                       {scene.negativePrompt && (
-                        <p className="text-xs sm:text-sm text-gray-600">
-                          <span className="font-medium">Negative Prompt:</span> {scene.negativePrompt}
-                        </p>
+                        <div>
+                          <p className="text-[10px] font-medium text-gray-300 mb-0.5">Negative Prompt:</p>
+                          <p className="text-[10px] text-gray-400">{scene.negativePrompt}</p>
+                        </div>
                       )}
                       {cameraText && (
-                        <p className="text-xs sm:text-sm text-gray-600">
-                          <span className="font-medium">Camera:</span> {cameraText}
-                        </p>
+                        <div>
+                          <p className="text-[10px] font-medium text-gray-300 mb-0.5">Camera:</p>
+                          <p className="text-[10px] text-gray-400">{cameraText}</p>
+                        </div>
                       )}
                       {scene.environment && (
-                        <p className="text-xs sm:text-sm text-gray-600">
-                          <span className="font-medium">Environment:</span> {
-                            [
+                        <div>
+                          <p className="text-[10px] font-medium text-gray-300 mb-0.5">Environment:</p>
+                          <p className="text-[10px] text-gray-400">
+                            {[
                               scene.environment.location,
                               scene.environment.timeOfDay,
                               scene.environment.lighting
-                            ].filter(Boolean).join(', ') || 'Not specified'
-                          }
-                        </p>
+                            ].filter(Boolean).join(', ') || 'Not specified'}
+                          </p>
+                        </div>
                       )}
                       {onScreenTextValue && (
-                        <p className="text-xs sm:text-sm text-gray-600">
-                          <span className="font-medium">On-screen Text:</span> {onScreenTextValue}
-                          {typeof scene.onScreenText === 'object' && scene.onScreenText?.styleNotes && (
-                            <span className="text-gray-500 ml-2">({scene.onScreenText.styleNotes})</span>
-                          )}
-                        </p>
+                        <div>
+                          <p className="text-[10px] font-medium text-gray-300 mb-0.5">On-screen Text:</p>
+                          <p className="text-[10px] text-gray-400">
+                            {onScreenTextValue}
+                            {typeof scene.onScreenText === 'object' && scene.onScreenText?.styleNotes && (
+                              <span className="text-gray-500 ml-1">({scene.onScreenText.styleNotes})</span>
+                            )}
+                          </p>
+                        </div>
                       )}
                       {(scene.compositionNotes || scene.notes) && (
-                        <p className="text-xs sm:text-sm text-gray-500 italic">
-                          {scene.compositionNotes || scene.notes}
-                        </p>
+                        <div>
+                          <p className="text-[10px] font-medium text-gray-300 mb-0.5">Notes:</p>
+                          <p className="text-[10px] text-gray-500 italic">{scene.compositionNotes || scene.notes}</p>
+                        </div>
                       )}
                     </div>
-                  </div>
-                )}
+                  )}
+
+                  {/* Expand/Collapse Button */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleScene(sceneIndex);
+                    }}
+                    className="mt-1 text-[10px] text-[#D1FE17] hover:text-[#B8E014] font-medium flex items-center gap-0.5"
+                  >
+                    {isExpanded ? 'Less' : 'Details'}
+                    <svg
+                      className={`w-2.5 h-2.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             );
           })}

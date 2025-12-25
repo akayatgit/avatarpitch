@@ -512,29 +512,12 @@ export default function TemplateForm({
             </div>
 
             <div className="border-t pt-5">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-900">Input Fields</h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const newField = {
-                      key: '',
-                      label: '',
-                      type: 'string' as const,
-                      required: false,
-                    };
-                    updateField(['inputsContract', 'fields'], [...formData.inputsContract.fields, newField]);
-                  }}
-                  className="btn-secondary text-sm px-4 py-2 min-h-[36px]"
-                >
-                  + Add Field
-                </button>
-              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Input Fields</h3>
               <div className="space-y-4">
                 {formData.inputsContract.fields.length === 0 ? (
                   <div className="bg-gray-50 p-8 rounded-lg border-2 border-dashed border-gray-300 text-center">
                     <p className="text-sm text-gray-500 mb-2">No input fields defined yet.</p>
-                    <p className="text-xs text-gray-400">Click "Add Field" above to create your first input field.</p>
+                    <p className="text-xs text-gray-400">Click "Add Field" below to create your first input field.</p>
                   </div>
                 ) : (
                   formData.inputsContract.fields.map((field, index) => (
@@ -751,6 +734,21 @@ export default function TemplateForm({
                   ))
                 )}
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const newField = {
+                    key: '',
+                    label: '',
+                    type: 'string' as const,
+                    required: false,
+                  };
+                  updateField(['inputsContract', 'fields'], [...formData.inputsContract.fields, newField]);
+                }}
+                className="btn-secondary text-sm px-4 py-2 min-h-[36px] mt-4"
+              >
+                + Add Field
+              </button>
             </div>
 
             <div className="border-t pt-5">
