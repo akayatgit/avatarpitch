@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
  * Process all scenes and generate images in the background
  * Saves images incrementally to the database as they're generated
  */
-async function processImagesInBackground(
+export async function processImagesInBackground(
   projectId: string,
   scenes: any[],
   referenceImageUrls: string[],
@@ -94,134 +94,146 @@ async function processImagesInBackground(
   const modelConfig = getModelConfig(model as ImageGenerationModel);
   const successfulImages: Array<{ sceneIndex: number; url: string }> = [];
 
-  // Process each scene sequentially
-  for (const scene of scenes) {
-    const sceneIndex = scene.index ?? scenes.indexOf(scene) + 1;
+  // Create all image generation tasks
+  const imageGenerationTasks: Array<{
+    sceneIndex: number;
+    scenePrompt: string;
+    imageIndex: number;
+  }> = [];
+
+  for (let idx = 0; idx < scenes.length; idx++) {
+    const scene = scenes[idx];
+    const sceneIndex = scene.index ?? idx + 1;
     const scenePrompt = buildComprehensiveScenePrompt(scene, scenes);
 
     if (!scenePrompt) {
-      console.warn(`Skipping scene ${sceneIndex}: no scene data available`);
       continue;
     }
 
-    // Generate requested number of images for this scene
+    // Add tasks for all images for this scene
     for (let imageIndex = 0; imageIndex < numImages; imageIndex++) {
-      try {
-        // Build input using the model config
-        const input = modelConfig.buildInput(
-          referenceImageUrls,
-          scenePrompt,
-          null, // outfitUrl - can be added later
-          1, // Always generate 1 image per call
-          aspectRatio,
-          size
-        );
-
-        // Run the model
-        const output = await replicate.run(modelConfig.modelId as `${string}/${string}`, {
-          input,
-        });
-
-        // Process output
-        const results = await modelConfig.processOutput(output);
-
-        if (results && results.length > 0 && results[0].url) {
-          const imageUrl = results[0].url;
-          successfulImages.push({
-            sceneIndex,
-            url: imageUrl,
-          });
-
-          // Save to database immediately after each image is generated
-          await saveImageToDatabase(projectId, sceneIndex, imageUrl);
-
-          console.log(
-            `Generated and saved image ${imageIndex + 1}/${numImages} for scene ${sceneIndex}`
-          );
-        }
-      } catch (error) {
-        console.error(
-          `Error generating image ${imageIndex + 1} for scene ${sceneIndex}:`,
-          error
-        );
-        // Continue with next image even if one fails
-      }
+      imageGenerationTasks.push({
+        sceneIndex,
+        scenePrompt,
+        imageIndex,
+      });
     }
   }
 
-  console.log(
-    `Background image generation completed for project ${projectId}. Generated ${successfulImages.length} images.`
-  );
+  // Execute all image generations in parallel
+  const imagePromises = imageGenerationTasks.map(async ({ sceneIndex, scenePrompt, imageIndex }) => {
+    try {
+      // Build input using the model config
+      const input = modelConfig.buildInput(
+        referenceImageUrls,
+        scenePrompt,
+        null, // outfitUrl - can be added later
+        1, // Always generate 1 image per call
+        aspectRatio,
+        size
+      );
+
+      // Run the model
+      const output = await replicate.run(modelConfig.modelId as `${string}/${string}`, {
+        input,
+      });
+
+      // Process output
+      const results = await modelConfig.processOutput(output);
+
+      if (results && results.length > 0 && results[0].url) {
+        const imageUrl = results[0].url;
+        
+        // Save to database immediately after each image is generated
+        // Pass imageIndex to track multiple images per scene
+        await saveImageToDatabase(projectId, sceneIndex, imageUrl, imageIndex);
+
+        return { success: true, sceneIndex, url: imageUrl };
+      }
+
+      return { success: false, sceneIndex, error: 'No image URL in results' };
+    } catch (error) {
+      console.error(`[Scene ${sceneIndex}] Generation failed:`, error instanceof Error ? error.message : 'Unknown error');
+      return { success: false, sceneIndex, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  });
+
+  // Wait for all image generations to complete
+  const imageResults = await Promise.allSettled(imagePromises);
+
+  // Collect successful images
+  for (const result of imageResults) {
+    if (result.status === 'fulfilled' && result.value.success && result.value.url) {
+      successfulImages.push({
+        sceneIndex: result.value.sceneIndex,
+        url: result.value.url,
+      });
+    }
+  }
 }
 
 /**
  * Save a single image to the database immediately
+ * Uses the generated_images table to avoid race conditions with concurrent writes
+ * Each image is inserted as a separate row, so concurrent inserts don't conflict
  */
 async function saveImageToDatabase(
   projectId: string,
   sceneIndex: number,
-  imageUrl: string
+  imageUrl: string,
+  imageIndex: number = 0
 ) {
-  try {
-    // Fetch current project data
-    const { data: request, error: fetchError } = await supabaseAdmin
-      .from('content_creation_requests')
-      .select('generated_output')
-      .eq('id', projectId)
-      .single();
+  const maxRetries = 5;
+  const retryDelay = 100; // Start with 100ms delay
 
-    if (fetchError || !request) {
-      console.error('Error fetching project:', fetchError);
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      // Insert into generated_images table
+      // The UNIQUE constraint on (content_creation_request_id, scene_index, image_index)
+      // will prevent duplicates, and concurrent inserts won't overwrite each other
+      const { error: insertError } = await supabaseAdmin
+        .from('generated_images')
+        .insert({
+          content_creation_request_id: projectId,
+          scene_index: sceneIndex,
+          image_url: imageUrl,
+          image_index: imageIndex,
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        // Check if it's a duplicate key error (23505 is PostgreSQL unique violation)
+        if (insertError.code === '23505') {
+          // Image already exists, that's fine - no need to retry
+          return;
+        }
+
+        // For other errors, retry
+        if (attempt === maxRetries - 1) {
+          console.error(`[Scene ${sceneIndex}] Failed to save image after ${maxRetries} attempts:`, insertError);
+        }
+        if (attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1)));
+          continue;
+        }
+        return;
+      }
+
+      // Success - log minimal info
+      console.log(`[Scene ${sceneIndex}] Saved: ${imageUrl}`);
+      return;
+
+    } catch (error) {
+      if (attempt === maxRetries - 1) {
+        console.error(`[Scene ${sceneIndex}] Error after ${maxRetries} attempts:`, error);
+      }
+      if (attempt < maxRetries - 1) {
+        await new Promise(resolve => setTimeout(resolve, retryDelay * (attempt + 1)));
+        continue;
+      }
       return;
     }
-
-    // Parse generated_output
-    let generatedOutput: any = {};
-    try {
-      generatedOutput =
-        typeof request.generated_output === 'string'
-          ? JSON.parse(request.generated_output)
-          : request.generated_output || {};
-    } catch (e) {
-      console.error('Error parsing generated_output:', e);
-      generatedOutput = {};
-    }
-
-    const scenes = generatedOutput.scenes || [];
-
-    // Find the scene and add the image URL
-    const updatedScenes = scenes.map((scene: any, idx: number) => {
-      const currentSceneIndex = scene.index ?? idx + 1;
-      if (currentSceneIndex === sceneIndex) {
-        const existingUrls = scene.imageUrls || [];
-        // Avoid duplicates
-        if (!existingUrls.includes(imageUrl)) {
-          return {
-            ...scene,
-            imageUrls: [...existingUrls, imageUrl],
-          };
-        }
-      }
-      return scene;
-    });
-
-    // Update the database
-    const { error: updateError } = await supabaseAdmin
-      .from('content_creation_requests')
-      .update({
-        generated_output: {
-          ...generatedOutput,
-          scenes: updatedScenes,
-        },
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', projectId);
-
-    if (updateError) {
-      console.error('Error updating project with new image:', updateError);
-    }
-  } catch (error) {
-    console.error('Error saving image to database:', error);
   }
 }
 

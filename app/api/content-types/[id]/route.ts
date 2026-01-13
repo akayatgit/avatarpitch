@@ -35,21 +35,6 @@ export async function GET(
       }
     }
 
-    console.log('[API] Raw database data:', {
-      id: contentType.id,
-      name: contentType.name,
-      hasInputsContract: !!inputsContract,
-      inputsContractType: typeof inputsContract,
-      inputsContractIsString: typeof contentType.inputs_contract === 'string',
-      inputsContractKeys: inputsContract ? Object.keys(inputsContract) : [],
-      inputsContractFields: inputsContract?.fields,
-      fieldsLength: inputsContract?.fields?.length,
-      fieldsIsArray: Array.isArray(inputsContract?.fields),
-      fullInputsContract: JSON.stringify(inputsContract, null, 2),
-      rawInputsContractType: typeof contentType.inputs_contract,
-      rawInputsContractValue: contentType.inputs_contract
-    });
-
     // Convert database structure to ContentTypeDefinition format
     const contentTypeDefinition = {
       id: contentType.id,
@@ -62,12 +47,6 @@ export async function GET(
       inputsContract: inputsContract,
       prompting: contentType.prompting,
     };
-
-    console.log('[API] Returning contentTypeDefinition:', {
-      name: contentTypeDefinition.name,
-      inputsContractFieldsLength: contentTypeDefinition.inputsContract?.fields?.length,
-      inputsContract: JSON.stringify(contentTypeDefinition.inputsContract, null, 2)
-    });
 
     // Set cache control headers to prevent caching
     return NextResponse.json(

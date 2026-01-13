@@ -28,6 +28,12 @@ interface GlobalMemory {
 let globalMemory: GlobalMemory | null = null;
 
 /**
+ * Maximum number of messages to keep in chat history
+ * This prevents token limit issues while maintaining recent context
+ */
+const MAX_CHAT_HISTORY_MESSAGES = 20; // Keep last 20 messages (10 user + 10 AI pairs)
+
+/**
  * Initialize or get global shared memory
  */
 export function getGlobalMemory(): GlobalMemory {
@@ -44,6 +50,69 @@ export function getGlobalMemory(): GlobalMemory {
  */
 export function resetGlobalMemory() {
   globalMemory = null;
+}
+
+/**
+ * Create a condensed summary of user prompt for memory storage
+ * Only stores essential context, not the full verbose instructions
+ */
+function createCondensedUserPromptSummary(
+  agent: AgentDefinition,
+  sceneContext: {
+    sceneIndex?: number;
+    scenePurpose?: string;
+    isFinalAgent: boolean;
+  },
+  previousPrompt: string | null
+): string {
+  const sceneInfo = sceneContext.sceneIndex 
+    ? `Scene ${sceneContext.sceneIndex}: ${sceneContext.scenePurpose || 'N/A'}` 
+    : 'Scene planning';
+  
+  if (sceneContext.isFinalAgent) {
+    return `[${agent.name} (${agent.role}) - Final Agent] ${sceneInfo}. Previous prompt: ${previousPrompt ? previousPrompt.substring(0, 200) + '...' : 'None'}`;
+  } else {
+    return `[${agent.name} (${agent.role})] ${sceneInfo}. Refining prompt: ${previousPrompt ? previousPrompt.substring(0, 200) + '...' : 'Creating initial prompt'}`;
+  }
+}
+
+/**
+ * Create a condensed summary of AI response for memory storage
+ * For non-final agents: stores only the modified_prompt (the key output)
+ * For final agents: stores only the imagePrompt
+ */
+function createCondensedAIResponseSummary(
+  content: string,
+  sceneContext: {
+    isFinalAgent: boolean;
+  }
+): string {
+  if (sceneContext.isFinalAgent) {
+    // Final agent: just store the image prompt (it's already the final output)
+    return content.substring(0, 500) + (content.length > 500 ? '...' : '');
+  } else {
+    // Regular agent: extract and store only the modified_prompt from JSON
+    try {
+      const parsed = JSON.parse(content);
+      const modifiedPrompt = parsed.modified_prompt || content;
+      return modifiedPrompt.substring(0, 500) + (modifiedPrompt.length > 500 ? '...' : '');
+    } catch (error) {
+      // If JSON parsing fails, try to extract JSON from the response
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const modifiedPrompt = parsed.modified_prompt || content;
+          return modifiedPrompt.substring(0, 500) + (modifiedPrompt.length > 500 ? '...' : '');
+        } catch (e) {
+          // Fallback: store truncated content
+          return content.substring(0, 500) + (content.length > 500 ? '...' : '');
+        }
+      }
+      // Fallback: store truncated content
+      return content.substring(0, 500) + (content.length > 500 ? '...' : '');
+    }
+  }
 }
 
 /**
@@ -229,9 +298,21 @@ IMPORTANT: Output ONLY valid JSON. Do not include any markdown code blocks, expl
   }
   content = content.trim();
 
-  // Save to memory
-  memory.chatHistory.push(new HumanMessage(userPrompt));
-  memory.chatHistory.push(new AIMessage(content));
+  // Save condensed summaries to memory instead of full prompts/responses
+  // This prevents token limit issues while maintaining essential context
+  const condensedUserPrompt = createCondensedUserPromptSummary(agent, sceneContext, previousPrompt);
+  const condensedAIResponse = createCondensedAIResponseSummary(content, sceneContext);
+  
+  memory.chatHistory.push(new HumanMessage(condensedUserPrompt));
+  memory.chatHistory.push(new AIMessage(condensedAIResponse));
+  
+  // Limit chat history size to prevent token accumulation
+  // Keep only the most recent messages (sliding window)
+  if (memory.chatHistory.length > MAX_CHAT_HISTORY_MESSAGES) {
+    // Remove oldest messages, keeping the most recent ones
+    const excess = memory.chatHistory.length - MAX_CHAT_HISTORY_MESSAGES;
+    memory.chatHistory = memory.chatHistory.slice(excess);
+  }
 
   // Return based on agent type
   if (sceneContext.isFinalAgent) {

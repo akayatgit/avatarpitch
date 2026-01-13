@@ -502,6 +502,14 @@ export async function generateProject(formData: FormData) {
     return { error: 'Inputs are required' };
   }
 
+  // Get current user
+  const { getCurrentUser } = await import('@/lib/session');
+  const user = await getCurrentUser();
+  
+  if (!user?.id) {
+    return { error: 'You must be logged in to create a project' };
+  }
+
   let inputs;
   try {
     if (!inputsStr) {
@@ -536,14 +544,9 @@ export async function generateProject(formData: FormData) {
   // Build dynamic schema from inputsContract
   if (inputsContract?.fields && inputsContract.fields.length > 0) {
     try {
-      // Debug: Log inputs and field keys
-      console.log('[generateProject] Inputs received:', JSON.stringify(inputs, null, 2));
-      console.log('[generateProject] Field keys in inputsContract:', inputsContract.fields.map((f: any) => ({ key: f.key, label: f.label, required: f.required })));
-      
       const dynamicInputsSchema = buildInputsSchema(inputsContract);
       const validationResult = dynamicInputsSchema.safeParse(inputs);
       if (!validationResult.success) {
-        console.log('[generateProject] Validation errors:', validationResult.error.errors);
         
         // Create a map of field keys to labels for better error messages
         const fieldKeyToLabel = new Map<string, string>();
@@ -591,138 +594,97 @@ export async function generateProject(formData: FormData) {
   };
 
   try {
-    // Generate actual content using the content type's prompting system
-    const generated = await generateContent({
-      contentType,
-      inputs: inputs as any, // Inputs are validated above if fields exist
-    });
-
-    const generatedOutput = {
-      format: 'storyboard_v1' as const,
-      scenes: generated.scenes,
-      textOverlaySuggestions: generated.textOverlaySuggestions,
-      thumbnailPrompt: generated.thumbnailPrompt,
-    };
-
     // Mock video URL
     const videoUrl = 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4';
 
-    // Save to database
+    // Save to database immediately with 'pending' status
+    // This allows the user to close the app and come back later
+    // Status will be updated to 'processing' then 'completed' by background process
     const { data: savedRequest, error: saveError } = await supabaseAdmin
       .from('content_creation_requests')
       .insert({
         content_type_id: contentTypeId,
         inputs: inputs,
-        generated_output: generatedOutput,
-        status: 'completed',
+        generated_output: null, // Will be updated when generation completes
+        status: 'pending', // Use 'pending' as initial status (will be updated to 'processing' by background API)
         video_url: videoUrl,
+        user_id: user.id,
       })
       .select()
       .single();
 
     if (saveError) {
-      // Still return success with the generated data even if save fails
+      console.error('Error saving project to database:', saveError);
+      // Log detailed error information
+      console.error('Save error details:', {
+        code: saveError.code,
+        message: saveError.message,
+        details: saveError.details,
+        hint: saveError.hint,
+      });
+      // Return error if save fails - we need the projectId for image generation
+      return {
+        error: `Failed to save project: ${saveError.message || 'Database error'}`,
+      };
+    }
+
+    if (!savedRequest?.id) {
+      console.error('Project saved but no ID returned:', savedRequest);
+      return {
+        error: 'Project saved but failed to retrieve project ID',
+      };
     }
 
     revalidatePath('/app');
 
-    // Preserve generation context in scenes
-    const scenesWithContext = generated.scenes.map((scene: any, idx: number) => ({
-      ...scene,
-      index: scene.index ?? (idx + 1), // Use existing index or array position + 1
-      // Keep generationContext if it exists
-      generationContext: scene.generationContext || generated.generationContext,
-    }));
-
+    // Return immediately with projectId - generation will happen in background
     return {
       success: true,
       data: {
         format: 'storyboard_v1',
-        scenes: scenesWithContext,
-        textOverlaySuggestions: generated.textOverlaySuggestions,
-        thumbnailPrompt: generated.thumbnailPrompt,
+        scenes: [], // Empty initially, will be populated by background process
+        textOverlaySuggestions: [],
+        thumbnailPrompt: '',
         videoUrl,
         contentTypeName: contentType.name,
         templateName: contentType.name, // For backward compatibility
-        requestId: savedRequest?.id,
-        projectId: savedRequest?.id, // For backward compatibility
+        requestId: savedRequest.id,
+        projectId: savedRequest.id, // Required for image generation
+        status: 'processing', // Indicate that generation is in progress
       },
     };
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : 'Failed to generate content',
+      error: error instanceof Error ? error.message : 'Failed to create project',
     };
   }
 }
 
-export async function updateProjectImages(projectId: string, generatedImages: Array<{ sceneIndex: number; url: string }>) {
+export async function updateProjectImages(projectId: string, generatedImages: Array<{ sceneIndex: number; url: string; imageIndex?: number }>) {
   if (!projectId) {
     return { error: 'Project ID is required' };
   }
 
   try {
-    // Fetch from content_creation_requests
-    const { data: request, error: fetchError } = await supabaseAdmin
-      .from('content_creation_requests')
-      .select('generated_output')
-      .eq('id', projectId)
-      .single();
+    // Insert images into the generated_images table
+    // This avoids race conditions by using individual row inserts instead of JSONB updates
+    const imageInserts = generatedImages.map((img) => ({
+      content_creation_request_id: projectId,
+      scene_index: img.sceneIndex,
+      image_url: img.url,
+      image_index: img.imageIndex ?? 0,
+    }));
 
-    if (fetchError || !request) {
-      return { error: 'Project not found' };
-    }
+    // Use upsert to handle duplicates gracefully (ON CONFLICT DO NOTHING)
+    const { error: insertError } = await supabaseAdmin
+      .from('generated_images')
+      .upsert(imageInserts, {
+        onConflict: 'content_creation_request_id,scene_index,image_index',
+        ignoreDuplicates: true,
+      });
 
-    // Parse generated_output
-    let generatedOutput: any = {};
-    try {
-      generatedOutput = typeof request.generated_output === 'string'
-        ? JSON.parse(request.generated_output)
-        : request.generated_output || {};
-    } catch (e) {
-      console.error('Error parsing generated_output:', e);
-      generatedOutput = {};
-    }
-
-    const scenes = generatedOutput.scenes || [];
-
-    // Group images by scene index
-    const imagesByScene = new Map<number, string[]>();
-    generatedImages.forEach((img) => {
-      if (!imagesByScene.has(img.sceneIndex)) {
-        imagesByScene.set(img.sceneIndex, []);
-      }
-      imagesByScene.get(img.sceneIndex)!.push(img.url);
-    });
-
-    // Update scenes with image URLs
-    const updatedScenes = scenes.map((scene: any, idx: number) => {
-      const sceneIndex = scene.index ?? (idx + 1);
-      const sceneImages = imagesByScene.get(sceneIndex) || [];
-      // Merge new images with existing ones, avoiding duplicates
-      const existingUrls = scene.imageUrls || [];
-      const newUrls = sceneImages.filter((url: string) => !existingUrls.includes(url));
-      return {
-        ...scene,
-        imageUrls: existingUrls.length > 0 || newUrls.length > 0
-          ? [...existingUrls, ...newUrls]
-          : [],
-      };
-    });
-
-    // Update content_creation_requests
-    const { error: updateError } = await supabaseAdmin
-      .from('content_creation_requests')
-      .update({
-        generated_output: {
-          ...generatedOutput,
-          scenes: updatedScenes,
-        },
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', projectId);
-
-    if (updateError) {
-      return { error: updateError.message };
+    if (insertError) {
+      return { error: insertError.message };
     }
 
     revalidatePath('/app');

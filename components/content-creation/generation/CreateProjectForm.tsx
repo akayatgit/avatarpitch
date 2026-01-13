@@ -45,6 +45,14 @@ export default function CreateProjectForm({ templates, generateProject, preselec
   const [showProgressDialog, setShowProgressDialog] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const simulationRef = useRef<{ stop: boolean; actualSceneCount: number | null }>({ stop: false, actualSceneCount: null });
+  
+  // Image generation settings
+  const [referenceImages, setReferenceImages] = useState<File[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('seedream-4.5');
+  const [numImages, setNumImages] = useState<number>(1);
+  const [aspectRatio, setAspectRatio] = useState<string>('9:16');
+  const [size, setSize] = useState<string>('4K');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
 
   // Fetch content type when template is selected
@@ -136,7 +144,9 @@ export default function CreateProjectForm({ templates, generateProject, preselec
       const agent = agents[i];
       setCurrentAgentId(agent.id);
       
-      const delay = 2000 + Math.random() * 2000;
+      // Increased delay to better match actual LLM API call times (5-15 seconds per agent)
+      // This is still a simulation, but closer to reality
+      const delay = 5000 + Math.random() * 10000;
       await new Promise(resolve => setTimeout(resolve, delay));
       
       setCompletedAgents(prev => new Set([...prev, agent.id]));
@@ -154,7 +164,7 @@ export default function CreateProjectForm({ templates, generateProject, preselec
     setCurrentAgentId(null);
   };
 
-  const simulateAllScenes = async (agents: Agent[], estimatedSceneCount: number) => {
+  const simulateAllScenes = async (agents: Agent[], estimatedSceneCount: number, generationPromise: Promise<any>) => {
     setShowProgressDialog(true);
     setIsFinalizing(false);
     simulationRef.current.stop = false;
@@ -163,36 +173,63 @@ export default function CreateProjectForm({ templates, generateProject, preselec
     // Start with estimated count, but check for actual count during simulation
     let currentMaxScenes = estimatedSceneCount;
     
-    for (let sceneNum = 1; sceneNum <= currentMaxScenes; sceneNum++) {
-      // Check if we have actual scene count and should stop early
-      if (simulationRef.current.actualSceneCount !== null) {
-        currentMaxScenes = simulationRef.current.actualSceneCount;
-        if (sceneNum > currentMaxScenes) {
+    // Run simulation and wait for actual generation in parallel
+    const simulationPromise = (async () => {
+      for (let sceneNum = 1; sceneNum <= currentMaxScenes; sceneNum++) {
+        // Check if we have actual scene count and should stop early
+        if (simulationRef.current.actualSceneCount !== null) {
+          currentMaxScenes = simulationRef.current.actualSceneCount;
+          if (sceneNum > currentMaxScenes) {
+            break;
+          }
+        }
+        
+        // Check if we should stop (generation completed)
+        if (simulationRef.current.stop) {
           break;
+        }
+        
+        await simulateProgressForScene(agents, sceneNum);
+        
+        // Check totalScenes state - if it changed to a lower number, adjust
+        if (totalScenes > 0 && totalScenes < estimatedSceneCount && sceneNum >= totalScenes) {
+          currentMaxScenes = totalScenes;
+          break;
+        }
+        
+        if (sceneNum < currentMaxScenes) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
       
-      // Check if we should stop
-      if (simulationRef.current.stop) {
-        break;
+      // If simulation finishes before generation, show "Crafting prompts..." message
+      // This indicates that prompts are still being crafted on the backend
+      if (!simulationRef.current.stop) {
+        setIsFinalizing(true);
+        setCurrentScene(0);
       }
-      
-      await simulateProgressForScene(agents, sceneNum);
-      
-      // Check totalScenes state - if it changed to a lower number, adjust
-      if (totalScenes > 0 && totalScenes < estimatedSceneCount && sceneNum >= totalScenes) {
-        currentMaxScenes = totalScenes;
-        break;
-      }
-      
-      if (sceneNum < currentMaxScenes) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
+    })();
+
+    // Wait for generation to complete, then stop simulation
+    try {
+      await generationPromise;
+      // Generation completed - stop simulation
+      simulationRef.current.stop = true;
+    } catch (error) {
+      // Generation failed - stop simulation
+      simulationRef.current.stop = true;
     }
     
-    setIsFinalizing(true);
+    // Wait for simulation to finish if it's still running
+    try {
+      await simulationPromise;
+    } catch (error) {
+      // Simulation error - continue anyway
+    }
+    
+    // Final state update
+    setIsFinalizing(false);
     setCurrentScene(0);
-    await new Promise(resolve => setTimeout(resolve, 2000));
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -228,12 +265,14 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                                            contentType.sceneGenerationPolicy?.maxScenes || 8) / 2) || 5;
     setTotalScenes(estimatedSceneCount);
 
+    // Start the generation promise first so simulation can track it
+    const generationPromise = generateProject(formData);
+
     // Start progress simulation only if we have agents configured
-    // Note: This is a simulation since the actual generation happens on the server
-    // The real scene count will be determined by the server and updated when response arrives
+    // The simulation will now wait for actual generation to complete
     if (agents.length > 0) {
-      // Store the simulation promise so we can cancel/update it if needed
-      simulateAllScenes(agents, estimatedSceneCount).catch(() => {});
+      // Pass the generation promise to the simulation so it can track actual progress
+      simulateAllScenes(agents, estimatedSceneCount, generationPromise).catch(() => {});
     } else {
       // If no agents, just show a simple loading state
       setShowProgressDialog(true);
@@ -241,51 +280,98 @@ export default function CreateProjectForm({ templates, generateProject, preselec
     }
 
     try {
-      const response = await generateProject(formData);
+      const response = await generationPromise;
       
       if (response.error) {
         setError(response.error);
         setCurrentAgentId(null);
         setShowProgressDialog(false);
       } else if (response.success && response.data) {
-        // Update total scenes to actual generated count IMMEDIATELY
-        const actualSceneCount = response.data.scenes?.length || 0;
-        if (actualSceneCount > 0) {
-          setTotalScenes(actualSceneCount);
-          // Update simulation ref so it can adjust
-          simulationRef.current.actualSceneCount = actualSceneCount;
-        }
+        const projectId = response.data.projectId;
         
-        // Update agent responses from actual contributions if available
-        if (response.data.scenes?.[0]?.agentContributions) {
-          const contributions = response.data.scenes[0].agentContributions;
-          
-          // Also update agents list from contributions if we don't have them yet
-          if (agents.length === 0 && contributions.length > 0) {
-            const agentsFromContributions = contributions.map((contrib: any, idx: number) => ({
-              id: contrib.agentId || `agent-${idx}`,
-              name: contrib.agentName || contrib.agentRole || `Agent ${idx + 1}`,
-              role: contrib.agentRole || contrib.agentName || `agent-${idx}`,
-              order: contrib.order ?? idx,
-            })).sort((a: Agent, b: Agent) => a.order - b.order);
-            setAgents(agentsFromContributions);
+        // If status is 'pending' or 'processing', start background generation
+        if ((response.data.status === 'pending' || response.data.status === 'processing') && projectId) {
+          // Upload reference images first if provided
+          let referenceImageUrls: string[] = [];
+          if (referenceImages.length > 0) {
+            try {
+              referenceImageUrls = await Promise.all(
+                referenceImages.map(file => uploadImageToServer(file))
+              );
+            } catch (error) {
+              console.error('Error uploading reference images:', error);
+            }
           }
           
-          setAgentResponses(prev => {
-            const newMap = new Map(prev);
-            contributions.forEach((contrib: any) => {
-              newMap.set(contrib.agentId, {
-                status: 'completed',
-                contribution: contrib.contribution,
-                role: contrib.agentRole,
-                timestamp: new Date().toISOString(),
-              });
+          // Start background generation (prompts + images)
+          try {
+            await fetch('/api/generate-project', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                projectId,
+                contentTypeId: selectedTemplateId,
+                inputs: formInputs,
+                referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : null,
+                model: referenceImageUrls.length > 0 ? selectedModel : null,
+                numImages: referenceImageUrls.length > 0 ? numImages : null,
+                aspectRatio: referenceImageUrls.length > 0 ? aspectRatio : null,
+                size: referenceImageUrls.length > 0 ? size : null,
+              }),
             });
-            return newMap;
+          } catch (error) {
+            console.error('Error starting background generation:', error);
+          }
+          
+          // Set result with pending status - user can close app now
+          setResult({
+            ...response.data,
+            status: 'pending',
           });
+          setShowProgressDialog(false);
+        } else {
+          // Legacy flow: scenes already generated
+          const actualSceneCount = response.data.scenes?.length || 0;
+          if (actualSceneCount > 0) {
+            setTotalScenes(actualSceneCount);
+            simulationRef.current.actualSceneCount = actualSceneCount;
+          }
+          
+          // Update agent responses from actual contributions if available
+          if (response.data.scenes?.[0]?.agentContributions) {
+            const contributions = response.data.scenes[0].agentContributions;
+            
+            if (agents.length === 0 && contributions.length > 0) {
+              const agentsFromContributions = contributions.map((contrib: any, idx: number) => ({
+                id: contrib.agentId || `agent-${idx}`,
+                name: contrib.agentName || contrib.agentRole || `Agent ${idx + 1}`,
+                role: contrib.agentRole || contrib.agentName || `agent-${idx}`,
+                order: contrib.order ?? idx,
+              })).sort((a: Agent, b: Agent) => a.order - b.order);
+              setAgents(agentsFromContributions);
+            }
+            
+            setAgentResponses(prev => {
+              const newMap = new Map(prev);
+              contributions.forEach((contrib: any) => {
+                newMap.set(contrib.agentId, {
+                  status: 'completed',
+                  contribution: contrib.contribution,
+                  role: contrib.agentRole,
+                  timestamp: new Date().toISOString(),
+                });
+              });
+              return newMap;
+            });
+          }
+          setResult(response.data);
+          setShowProgressDialog(false);
+          
+          // Auto-start image generation if reference images are provided
+          if (referenceImages.length > 0 && response.data.projectId) {
+            startImageGeneration(response.data, referenceImages, selectedModel, numImages, aspectRatio, size);
+          }
         }
-        setResult(response.data);
-        setShowProgressDialog(false);
       } else {
         setError('Unexpected response format');
         setCurrentAgentId(null);
@@ -299,12 +385,85 @@ export default function CreateProjectForm({ templates, generateProject, preselec
       setLoading(false);
     }
   };
+  
+  const uploadImageToServer = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('images', file);
+    
+    const response = await fetch('/api/upload-image', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to upload image: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    return data.url;
+  };
+  
+  const startImageGeneration = async (
+    projectData: any,
+    referenceImages: File[],
+    model: string,
+    numImages: number,
+    aspectRatio: string,
+    size: string
+  ) => {
+    try {
+      // Upload reference images
+      const referenceImageUrls = await Promise.all(
+        referenceImages.map(file => uploadImageToServer(file))
+      );
+
+      // Start background image generation
+      const response = await fetch('/api/generate-all-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: projectData.projectId,
+          scenes: projectData.scenes,
+          referenceImageUrls: referenceImageUrls,
+          model,
+          numImages,
+          aspectRatio,
+          size,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to start image generation:', errorData.error);
+        // Don't show alert - just log the error
+      }
+    } catch (error) {
+      console.error('Error starting image generation:', error);
+      // Don't show alert - just log the error
+    }
+  };
+  
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const files = Array.from(e.target.files);
+      setReferenceImages(prev => [...prev, ...files]);
+    }
+  };
+
+  const removeImage = (index: number) => {
+    setReferenceImages(prev => prev.filter((_, i) => i !== index));
+  };
 
   const handleStartNew = () => {
     setResult(null);
     setError(null);
     setFormInputs({});
     setSelectedTemplateId('');
+    setReferenceImages([]);
+    setSelectedModel('seedream-4.5');
+    setNumImages(1);
+    setAspectRatio('9:16');
+    setSize('4K');
     const form = document.getElementById('project-form') as HTMLFormElement;
     if (form) form.reset();
   };
@@ -357,6 +516,142 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                 onChange={setFormInputs}
               />
             )}
+
+            {/* Image Generation Settings */}
+            <div className="border-t border-gray-800 pt-5 mt-5">
+              <h3 className="text-base font-semibold text-white mb-4">Image Generation Settings</h3>
+              
+              {/* Reference Images Upload */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Reference Images
+                </label>
+                <p className="text-xs text-gray-400 mb-2">
+                  Images will be automatically generated after scenes are created if reference images are provided.
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full px-4 py-3 border-2 border-dashed border-gray-700 rounded-xl hover:border-[#D1FE17] transition-colors duration-200 text-gray-400"
+                >
+                  <div className="flex flex-col items-center">
+                    <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span>Click to upload reference images</span>
+                  </div>
+                </button>
+                {referenceImages.length > 0 && (
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    {referenceImages.map((file, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={URL.createObjectURL(file)}
+                          alt={`Reference ${index + 1}`}
+                          className="w-full h-24 object-cover rounded-lg"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(index)}
+                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Model Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-white mb-2">
+                  AI Model
+                </label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="input-field"
+                >
+                  <option value="seedream-4.5">Seedream 4.5</option>
+                  <option value="nano-banana-pro">Nano Banana Pro</option>
+                  <option value="nano-banana">Nano Banana</option>
+                </select>
+              </div>
+
+              {/* Number of Images */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Number of Images per Scene
+                </label>
+                <select
+                  value={numImages}
+                  onChange={(e) => setNumImages(Number(e.target.value))}
+                  className="input-field"
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                </select>
+              </div>
+
+              {/* Aspect Ratio */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Aspect Ratio
+                </label>
+                <select
+                  value={aspectRatio}
+                  onChange={(e) => setAspectRatio(e.target.value)}
+                  className="input-field"
+                >
+                  <option value="16:9">16:9</option>
+                  <option value="1:1">1:1</option>
+                  <option value="9:16">9:16</option>
+                </select>
+              </div>
+
+              {/* Size */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-white mb-2">
+                  Size
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSize('2K')}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-colors ${
+                      size === '2K'
+                        ? 'border-[#D1FE17] bg-[#D1FE17]/20 text-[#D1FE17] font-medium'
+                        : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600'
+                    }`}
+                  >
+                    2K
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSize('4K')}
+                    className={`flex-1 px-4 py-3 rounded-lg border-2 transition-colors ${
+                      size === '4K'
+                        ? 'border-[#D1FE17] bg-[#D1FE17]/20 text-[#D1FE17] font-medium'
+                        : 'border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600'
+                    }`}
+                  >
+                    4K
+                  </button>
+                </div>
+              </div>
+            </div>
 
             {error && (
               <div className="text-sm text-red-400 bg-red-900/20 p-4 rounded-xl border border-red-800">

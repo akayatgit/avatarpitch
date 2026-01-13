@@ -127,23 +127,38 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
   const [availableAgents, setAvailableAgents] = useState<DatabaseAgent[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
   
-  // Fetch agents from database on mount
-  useEffect(() => {
-    async function fetchAgents() {
-      try {
-        const response = await fetch('/api/agents');
-        if (response.ok) {
-          const data = await response.json();
-          setAvailableAgents(data.agents || []);
-        }
-      } catch (error) {
-        console.error('Failed to fetch agents:', error);
-      } finally {
-        setLoadingAgents(false);
+  // Fetch agents from database
+  const fetchAgents = useCallback(async () => {
+    setLoadingAgents(true);
+    try {
+      // Add cache-busting timestamp to ensure fresh data
+      const timestamp = Date.now();
+      const response = await fetch(`/api/agents?t=${timestamp}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+        },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Fetched agents:', data.agents?.length || 0, 'agents');
+        setAvailableAgents(data.agents || []);
+      } else {
+        console.error('Failed to fetch agents: HTTP', response.status);
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Error details:', errorData);
       }
+    } catch (error) {
+      console.error('Failed to fetch agents:', error);
+    } finally {
+      setLoadingAgents(false);
     }
-    fetchAgents();
   }, []);
+  
+  // Fetch agents on mount
+  useEffect(() => {
+    fetchAgents();
+  }, [fetchAgents]);
   
   // Parse config if it's a string (sometimes Supabase returns JSONB as string)
   const parsedConfig = (() => {
@@ -177,6 +192,27 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
   const [workflow, setWorkflow] = useState<AgentWorkflow>(initialWorkflow);
   const [showAddAgent, setShowAddAgent] = useState(false);
   const [saving, setSaving] = useState(false);
+  
+  // Refetch agents when "Add Agent" dropdown is opened to show newly added agents
+  useEffect(() => {
+    if (showAddAgent) {
+      console.log('Add Agent dropdown opened, fetching fresh agents...');
+      fetchAgents();
+    }
+  }, [showAddAgent, fetchAgents]);
+  
+  // Refetch agents when window regains focus (in case user created agent in another tab)
+  useEffect(() => {
+    const handleFocus = () => {
+      if (showAddAgent) {
+        console.log('Window focused, refreshing agents list...');
+        fetchAgents();
+      }
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [showAddAgent, fetchAgents]);
   
   // Sync workflow when initialConfig changes (e.g., after page refresh or save)
   // Only sync if we have no agents currently (initial load) or if the config actually changed
@@ -603,6 +639,21 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
           </button>
           {showAddAgent && (
             <div className="mt-2 bg-gray-700 rounded-lg p-2 max-h-64 overflow-y-auto">
+              <div className="flex items-center justify-between mb-2 px-2">
+                <span className="text-xs text-gray-400">
+                  {loadingAgents ? 'Loading...' : `${availableAgents.length} agent${availableAgents.length !== 1 ? 's' : ''} available`}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fetchAgents();
+                  }}
+                  className="text-xs text-orange-400 hover:text-orange-300 underline"
+                  title="Refresh agents list"
+                >
+                  🔄 Refresh
+                </button>
+              </div>
               {loadingAgents ? (
                 <p className="text-gray-400 text-sm text-center py-4">Loading agents...</p>
               ) : availableAgents.length === 0 ? (
@@ -610,17 +661,40 @@ export default function ReactFlowWorkflowEditor({ templateId, initialConfig }: R
                   No agents available. <a href="/app/agents" className="text-orange-400 underline">Create one</a>
                 </p>
               ) : (
-                availableAgents.map((agent: any) => (
-                  <button
-                    key={agent.id}
-                    onClick={() => addAgent(agent.id)}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-600 rounded text-sm mb-1 flex items-center gap-2"
-                  >
-                    <span>{AGENT_ROLE_ICONS[agent.role] || '⚙️'}</span>
-                    <span>{agent.name}</span>
-                    <span className="text-xs text-gray-400 ml-auto">({agent.role})</span>
-                  </button>
-                ))
+                <>
+                  {availableAgents
+                    .filter((agent: any) => {
+                      // Filter out agents that are already in the workflow
+                      const workflowAgentIds = workflow.agents.map((a: any) => {
+                        // Extract original DB ID from workflow agent ID (format: agent_timestamp_dbId)
+                        const parts = a.id.split('_');
+                        return parts.length > 2 ? parts[2] : a.id;
+                      });
+                      return !workflowAgentIds.includes(agent.id);
+                    })
+                    .map((agent: any) => (
+                      <button
+                        key={agent.id}
+                        onClick={() => addAgent(agent.id)}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-600 rounded text-sm mb-1 flex items-center gap-2"
+                      >
+                        <span>{AGENT_ROLE_ICONS[agent.role] || '⚙️'}</span>
+                        <span>{agent.name}</span>
+                        <span className="text-xs text-gray-400 ml-auto">({agent.role})</span>
+                      </button>
+                    ))}
+                  {availableAgents.filter((agent: any) => {
+                    const workflowAgentIds = workflow.agents.map((a: any) => {
+                      const parts = a.id.split('_');
+                      return parts.length > 2 ? parts[2] : a.id;
+                    });
+                    return !workflowAgentIds.includes(agent.id);
+                  }).length === 0 && availableAgents.length > 0 && (
+                    <p className="text-gray-400 text-sm text-center py-4">
+                      All available agents are already in the workflow
+                    </p>
+                  )}
+                </>
               )}
             </div>
           )}

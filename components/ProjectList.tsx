@@ -61,6 +61,8 @@ interface Project {
     index: number;
     imageUrls?: string[];
   }> | null;
+  status?: string;
+  isGenerating?: boolean;
 }
 
 interface ProjectListProps {
@@ -146,6 +148,7 @@ export default function ProjectList({ projects }: ProjectListProps) {
             {projects.map((project) => {
               const scenes = project.scenes || [];
               const sceneCount = scenes.length;
+              const isGenerating = project.isGenerating || (project.status === 'pending' && sceneCount === 0);
               
               // Collect all image URLs from all scenes
               const allImages: string[] = scenes.flatMap((scene) => scene.imageUrls || []);
@@ -163,14 +166,28 @@ export default function ProjectList({ projects }: ProjectListProps) {
                       {project.template_name && (
                         <span className="mr-2">Content Type: {project.template_name}</span>
                       )}
-                      <span className="mr-2">Scenes: {sceneCount}</span>
+                      {isGenerating ? (
+                        <span className="mr-2 flex items-center gap-1">
+                          <span className="w-3 h-3 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin"></span>
+                          Generating...
+                        </span>
+                      ) : (
+                        <span className="mr-2">Scenes: {sceneCount}</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400 hidden sm:table-cell">
                     {project.template_name || '-'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-white font-medium">
-                    {sceneCount} scene{sceneCount !== 1 ? 's' : ''}
+                    {isGenerating ? (
+                      <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin"></span>
+                        <span className="text-gray-400">Generating...</span>
+                      </span>
+                    ) : (
+                      <span>{sceneCount} scene{sceneCount !== 1 ? 's' : ''}</span>
+                    )}
                   </td>
                   <td className="px-6 py-4">
                     {allImages.length > 0 ? (

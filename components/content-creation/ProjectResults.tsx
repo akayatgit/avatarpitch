@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import AgentBreakdownDialog from './AgentBreakdownDialog';
 import GenerationBreakdownDialog from './GenerationBreakdownDialog';
-import ImageGenerationDialog from './ImageGenerationDialog';
 import ImageCarousel from './ImageCarousel';
 import ImageViewer from './ImageViewer';
 import { updateProjectImages } from '@/app/app/actions';
@@ -87,6 +86,7 @@ interface ProjectResultsProps {
     contentTypeName?: string;
     projectId?: string; // Project ID for saving images
     requestId?: string; // Content creation request ID
+    status?: 'processing' | 'completed' | 'failed'; // Project status
   };
   onStartNew: () => void;
 }
@@ -98,18 +98,35 @@ interface GeneratedImage {
   imageIndex?: number;
 }
 
-export default function ProjectResults({ result, onStartNew }: ProjectResultsProps) {
+interface GeneratedVideo {
+  id: string;
+  url: string;
+  imageUrls: string[];
+  generating?: boolean;
+  createdAt: Date;
+}
+
+export default function ProjectResults({ result: initialResult, onStartNew }: ProjectResultsProps) {
   const [downloading, setDownloading] = useState(false);
   const [selectedScene, setSelectedScene] = useState<number | null>(null);
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
-  const [showImageDialog, setShowImageDialog] = useState(false);
-  const [generatingImages, setGeneratingImages] = useState(false);
   const [backgroundGenerationStarted, setBackgroundGenerationStarted] = useState(false);
+  const [result, setResult] = useState(initialResult);
   
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
+  const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
+  const [generatedVideos, setGeneratedVideos] = useState<GeneratedVideo[]>([]);
+  const [generatingVideo, setGeneratingVideo] = useState(false);
+  const [regeneratingAll, setRegeneratingAll] = useState(false);
+  const [regeneratingScenes, setRegeneratingScenes] = useState<Set<number>>(new Set());
   const activeRequestsRef = useRef<Map<string, AbortController>>(new Map());
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Update result when initialResult changes
+  useEffect(() => {
+    setResult(initialResult);
+  }, [initialResult]);
 
   // Load existing images from scene.imageUrls when component mounts or result changes
   const loadImagesFromScenes = () => {
@@ -132,19 +149,48 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
     loadImagesFromScenes();
   }, [result.scenes]);
 
-  // Set up polling to check for new images if background generation is in progress
+  // Set up polling to check for updates (scenes and images) if projectId exists
+  // This handles both prompt generation and image generation in progress
   useEffect(() => {
-    if (backgroundGenerationStarted && result.projectId) {
-      // Poll every 10 seconds to check for new images
+    if (result.projectId) {
+      // Check if we're in processing state (scenes not yet generated)
+      const isProcessing = (result as any).status === 'processing' || result.scenes.length === 0;
+      
+      // Check if images are already being generated (if any scenes have imageUrls)
+      const hasImages = result.scenes.some((scene: any) => scene.imageUrls && scene.imageUrls.length > 0);
+      
+      // If processing or no images yet, assume generation might be in progress and start polling
+      if (isProcessing || hasImages || result.scenes.length === 0) {
+        setBackgroundGenerationStarted(true);
+      }
+      
+      // Poll every 3 seconds to check for updates (scenes and images)
       refreshIntervalRef.current = setInterval(async () => {
         try {
           // Fetch updated project data
           const response = await fetch(`/api/project/${result.projectId}`);
           if (response.ok) {
             const data = await response.json();
-            if (data.scenes) {
+            const scenes = data.scenes || [];
+            const status = data.status || 'pending';
+            
+            // Always update status, even if scenes array is empty (generation in progress)
+            if (status !== result.status) {
+              setResult(prev => ({
+                ...prev,
+                status: status as any,
+              }));
+            }
+
+            // Update image generation settings if available
+            if (data.imageGenerationSettings && !imageGenerationSettings) {
+              setImageGenerationSettings(data.imageGenerationSettings);
+            }
+            
+            // Update scenes if we have any
+            if (scenes.length > 0) {
               // Update result with new scenes data
-              const updatedImages: GeneratedImage[] = data.scenes.flatMap((scene: any, idx: number) => {
+              const updatedImages: GeneratedImage[] = scenes.flatMap((scene: any, idx: number) => {
                 const sceneIndex = scene.index ?? (idx + 1);
                 return (scene.imageUrls || []).map((url: string, imgIdx: number) => ({
                   sceneIndex,
@@ -154,22 +200,80 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                 }));
               });
               
+              // Check if all scenes have at least one image
+              const allScenesHaveImages = scenes.every((scene: any) => 
+                scene.imageUrls && scene.imageUrls.length > 0
+              );
+              
               // Update images if we have any (even if count is same, URLs might have changed)
               setGeneratedImages(prev => {
-                // Only update if we actually have new or different images
-                if (updatedImages.length > 0 && JSON.stringify(updatedImages) !== JSON.stringify(prev)) {
+                // Check if we have new images by comparing URLs
+                const prevUrls = new Set(prev.map(img => img.url));
+                const updatedUrls = new Set(updatedImages.map(img => img.url));
+                
+                // Check if there are new URLs or if the count changed
+                const hasNewUrls = updatedImages.some(img => !prevUrls.has(img.url));
+                const countChanged = prev.length !== updatedImages.length;
+                
+                // Always update if we have new images or count changed
+                if (updatedImages.length > 0 && (hasNewUrls || countChanged || JSON.stringify(updatedImages) !== JSON.stringify(prev))) {
                   return updatedImages;
                 }
                 return prev;
               });
+              
+              // Update result with new scenes if we got them (show scenes as they appear)
+              // Check if scenes have changed by comparing scene counts and image URLs
+              const scenesChanged = scenes.length !== result.scenes.length;
+              const imagesChanged = scenes.some((scene: any, idx: number) => {
+                const sceneIndex = scene.index ?? (idx + 1);
+                const prevScene = result.scenes.find((s: any) => (s.index ?? result.scenes.indexOf(s) + 1) === sceneIndex);
+                if (!prevScene) return true; // New scene
+                const prevUrls = new Set(prevScene.imageUrls || []);
+                const newUrls = new Set(scene.imageUrls || []);
+                // Check if URLs changed (new URLs added or count changed)
+                return newUrls.size !== prevUrls.size || Array.from(newUrls).some(url => !prevUrls.has(url));
+              });
+              
+              if (scenesChanged || imagesChanged || JSON.stringify(scenes) !== JSON.stringify(result.scenes)) {
+                // Update the result state with new scenes
+                setResult(prev => ({
+                  ...prev,
+                  scenes: scenes,
+                  status: status as any,
+                }));
+              }
+              
+              // If all scenes have at least one image and status is completed, consider generation complete
+              if (allScenesHaveImages && scenes.length > 0 && status === 'completed') {
+                setBackgroundGenerationStarted(false);
+                // Clear the interval since generation is complete
+                if (refreshIntervalRef.current) {
+                  clearInterval(refreshIntervalRef.current);
+                  refreshIntervalRef.current = null;
+                }
+              } else if (updatedImages.length > 0 || status === 'pending') {
+                // If we have images but not all scenes have them yet, or status is pending, keep showing the message
+                setBackgroundGenerationStarted(true);
+              }
+            } else if (status === 'pending') {
+              // If no scenes yet but status indicates pending (generation in progress), keep polling
+              setBackgroundGenerationStarted(true);
+            } else if (status === 'failed') {
+              // If status is failed, stop polling
+              setBackgroundGenerationStarted(false);
+              if (refreshIntervalRef.current) {
+                clearInterval(refreshIntervalRef.current);
+                refreshIntervalRef.current = null;
+              }
             }
           }
         } catch (error) {
-          console.error('Error polling for new images:', error);
+          console.error('Error polling for updates:', error);
         }
-      }, 10000); // Poll every 10 seconds
+      }, 3000); // Poll every 3 seconds
 
-      // Clean up interval on unmount or when generation stops
+      // Clean up interval on unmount
       return () => {
         if (refreshIntervalRef.current) {
           clearInterval(refreshIntervalRef.current);
@@ -177,13 +281,13 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
         }
       };
     } else {
-      // Clear interval if background generation is not active
+      // Clear interval if no projectId
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
         refreshIntervalRef.current = null;
       }
     }
-  }, [backgroundGenerationStarted, result.projectId]);
+  }, [result.projectId, result.scenes]);
 
   const toggleScene = (sceneIndex: number) => {
     setExpandedScenes(prev => {
@@ -223,23 +327,420 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
     return sum + (scene.durationSeconds || 0);
   }, 0);
 
-  const uploadImageToServer = async (file: File): Promise<string> => {
-    const formData = new FormData();
-    formData.append('images', file);
-    
-    // Use our proxy API route to avoid CORS issues
-    const response = await fetch('/api/upload-image', {
-      method: 'POST',
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to upload image: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    return data.url;
+  // Helper function to create consistent image IDs
+  const getImageId = (image: GeneratedImage, index: number): string => {
+    return `${image.sceneIndex}-${image.imageIndex ?? index}`;
   };
+
+  const handleImageSelect = (imageId: string, selected: boolean) => {
+    setSelectedImageIds(prev => {
+      const newSet = new Set(prev);
+      if (selected) {
+        newSet.add(imageId);
+      } else {
+        newSet.delete(imageId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleGenerateVideo = async () => {
+    if (selectedImageIds.size === 0) return;
+
+    setGeneratingVideo(true);
+    
+    try {
+      // Get the selected images - need to match IDs using the same format as ImageCarousel
+      // We need to use the original indices from generatedImages array
+      const selectedImages = generatedImages
+        .map((img, originalIdx) => ({
+          image: img,
+          originalIdx,
+          imageId: getImageId(img, originalIdx),
+        }))
+        .filter(({ imageId, image }) => selectedImageIds.has(imageId) && !image.generating)
+        .map(({ image }) => image);
+
+      if (selectedImages.length === 0) {
+        alert('Please select at least one valid image');
+        setGeneratingVideo(false);
+        return;
+      }
+
+      // Generate a video for each selected image
+      const videoPromises = selectedImages.map(async (image, index) => {
+        // Create a unique video ID for each image
+        const videoId = `video-${Date.now()}-${index}`;
+        
+        // Create a new video entry with generating state
+        const newVideo: GeneratedVideo = {
+          id: videoId,
+          url: '',
+          imageUrls: [image.url], // Each video uses a single image
+          generating: true,
+          createdAt: new Date(),
+        };
+
+        // Add video to the list immediately
+        setGeneratedVideos(prev => [...prev, newVideo]);
+
+        try {
+          // Call the API to generate video for this image
+          const response = await fetch('/api/generate-video', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              imageUrls: [image.url], // Send single image URL
+            }),
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to generate video');
+          }
+
+          const data = await response.json();
+          
+          // Update the video with the generated URL
+          setGeneratedVideos(prev => prev.map(video => 
+            video.id === videoId 
+              ? { ...video, url: data.videoUrl, generating: false }
+              : video
+          ));
+
+          return { success: true, videoId };
+        } catch (error) {
+          console.error(`Error generating video for image ${index + 1}:`, error);
+          
+          // Remove the failed video entry
+          setGeneratedVideos(prev => prev.filter(video => video.id !== videoId));
+          
+          return { success: false, videoId, error };
+        }
+      });
+
+      // Wait for all videos to be generated
+      const results = await Promise.allSettled(videoPromises);
+      
+      // Count successes and failures
+      const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      const failed = results.length - successful;
+
+      if (successful > 0) {
+        if (failed > 0) {
+          alert(`Generated ${successful} video(s) successfully. ${failed} video(s) failed.`);
+        } else {
+          // All videos generated successfully
+          console.log(`Successfully generated ${successful} video(s)`);
+        }
+      } else {
+        alert('Failed to generate videos. Please try again.');
+      }
+
+      // Clear selected images after generation completes
+      setSelectedImageIds(new Set());
+    } catch (error) {
+      console.error('Error in video generation:', error);
+      alert(error instanceof Error ? error.message : 'Failed to generate videos');
+    } finally {
+      setGeneratingVideo(false);
+    }
+  };
+
+  const handleDownloadVideo = async (video: GeneratedVideo) => {
+    if (!video.url || video.generating) return;
+
+    try {
+      const response = await fetch(video.url);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `video-${video.id}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading video:', error);
+      alert('Failed to download video');
+    }
+  };
+
+  // Extract image generation settings from project data or use defaults
+  const [imageGenerationSettings, setImageGenerationSettings] = useState<{
+    referenceImageUrls: string[];
+    model: string;
+    numImages: number;
+    aspectRatio: string;
+    size: string;
+  } | null>(null);
+
+  // Fetch image generation settings from project API
+  useEffect(() => {
+    if (result.projectId) {
+      fetch(`/api/project/${result.projectId}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.imageGenerationSettings) {
+            setImageGenerationSettings(data.imageGenerationSettings);
+          }
+        })
+        .catch(err => {
+          console.error('Error fetching image generation settings:', err);
+        });
+    }
+  }, [result.projectId]);
+
+  const getImageGenerationSettings = () => {
+    // Use stored settings if available, otherwise use defaults
+    if (imageGenerationSettings) {
+      return imageGenerationSettings;
+    }
+
+    // Default settings
+    return {
+      referenceImageUrls: [],
+      model: 'seedream-4.5',
+      numImages: 1,
+      aspectRatio: '9:16',
+      size: '4K',
+    };
+  };
+
+  const handleRegenerateAllImages = async () => {
+    if (!result.projectId) {
+      alert('Project ID is required for regeneration');
+      return;
+    }
+
+    const settings = getImageGenerationSettings();
+    
+    // Check if we have reference image URLs - if not, prompt the user
+    if (!settings.referenceImageUrls || settings.referenceImageUrls.length === 0) {
+      const userInput = prompt(
+        'Reference image URLs are required for regeneration.\n\n' +
+        'Please provide reference image URLs (comma-separated):'
+      );
+      
+      if (!userInput || userInput.trim() === '') {
+        alert('Reference image URLs are required for regeneration');
+        return;
+      }
+      
+      settings.referenceImageUrls = userInput.split(',').map(url => url.trim()).filter(Boolean);
+    }
+
+    setRegeneratingAll(true);
+
+    try {
+      const response = await fetch('/api/regenerate-images', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: result.projectId,
+          ...settings,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to regenerate images');
+      }
+
+      // Clear existing images from UI immediately
+      setGeneratedImages([]);
+      
+      // Restart polling to check for new images
+      setBackgroundGenerationStarted(true);
+
+      alert('Image regeneration started! Images will appear as they are generated.');
+    } catch (error) {
+      console.error('Error regenerating images:', error);
+      alert(error instanceof Error ? error.message : 'Failed to regenerate images');
+    } finally {
+      setRegeneratingAll(false);
+    }
+  };
+
+  const handleRegenerateScene = async (sceneIndex: number) => {
+    if (!result.projectId) {
+      alert('Project ID is required for regeneration');
+      return;
+    }
+
+    const settings = getImageGenerationSettings();
+    
+    // Check if we have reference image URLs
+    if (!settings.referenceImageUrls || settings.referenceImageUrls.length === 0) {
+      const userInput = prompt(
+        'Reference image URLs are required for regeneration.\n\n' +
+        'Please provide reference image URLs (comma-separated):'
+      );
+      
+      if (!userInput || userInput.trim() === '') {
+        alert('Reference image URLs are required for regeneration');
+        return;
+      }
+      
+      settings.referenceImageUrls = userInput.split(',').map(url => url.trim()).filter(Boolean);
+    }
+
+    setRegeneratingScenes(prev => new Set(prev).add(sceneIndex));
+
+    try {
+      const response = await fetch('/api/regenerate-images', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: result.projectId,
+          sceneIndex,
+          ...settings,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to regenerate scene image');
+      }
+
+      // Clear existing images for this scene from UI
+      setGeneratedImages(prev => prev.filter(img => img.sceneIndex !== sceneIndex));
+      
+      // Restart polling to check for new images
+      setBackgroundGenerationStarted(true);
+
+      // Show a brief success message
+      console.log(`Scene ${sceneIndex} regeneration started`);
+    } catch (error) {
+      console.error('Error regenerating scene:', error);
+      alert(error instanceof Error ? error.message : 'Failed to regenerate scene image');
+    } finally {
+      setRegeneratingScenes(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(sceneIndex);
+        return newSet;
+      });
+    }
+  };
+
+  const handleShowImageUrl = async (sceneIndex: number) => {
+    if (!result.projectId) {
+      alert('Project ID is required');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/project/${result.projectId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch project data');
+      }
+      
+      const data = await response.json();
+      const scenes = data.scenes || [];
+      const scene = scenes.find((s: any, idx: number) => {
+        const currentSceneIndex = s.index ?? (idx + 1);
+        return currentSceneIndex === sceneIndex;
+      });
+
+      if (scene) {
+        const imageUrls = scene.imageUrls || [];
+        const sceneImages = generatedImages.filter(img => img.sceneIndex === sceneIndex);
+        
+        const info = {
+          sceneIndex,
+          sceneIndexInArray: scenes.indexOf(scene),
+          sceneHasIndex: scene.index !== undefined,
+          imageUrlsInDatabase: imageUrls,
+          imageUrlsInState: sceneImages.map(img => img.url),
+          imageUrlsCount: imageUrls.length,
+          stateImagesCount: sceneImages.length,
+        };
+
+        console.log(`Scene ${sceneIndex} Image URLs:`, info);
+        
+        const message = `Scene ${sceneIndex} Image URLs:\n\n` +
+          `Database (imageUrls): ${imageUrls.length > 0 ? imageUrls.join(', ') : 'NONE'}\n` +
+          `State (generatedImages): ${sceneImages.length > 0 ? sceneImages.map(img => img.url).join(', ') : 'NONE'}\n\n` +
+          `Full debug info logged to console.`;
+        
+        alert(message);
+      } else {
+        alert(`Scene ${sceneIndex} not found in database`);
+      }
+    } catch (error) {
+      console.error('Error fetching image URL:', error);
+      alert(error instanceof Error ? error.message : 'Failed to fetch image URL');
+    }
+  };
+
+  const handleFetchImage = async (sceneIndex: number) => {
+    if (!result.projectId) {
+      alert('Project ID is required');
+      return;
+    }
+
+    try {
+      // Fetch latest project data
+      const response = await fetch(`/api/project/${result.projectId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch project data');
+      }
+      
+      const data = await response.json();
+      const scenes = data.scenes || [];
+      const scene = scenes.find((s: any, idx: number) => {
+        const currentSceneIndex = s.index ?? (idx + 1);
+        return currentSceneIndex === sceneIndex;
+      });
+
+      if (scene && scene.imageUrls && scene.imageUrls.length > 0) {
+        // Update the generatedImages state with images from database
+        const updatedImages: GeneratedImage[] = scene.imageUrls.map((url: string, imgIdx: number) => ({
+          sceneIndex,
+          url,
+          generating: false,
+          imageIndex: imgIdx,
+        }));
+
+        setGeneratedImages(prev => {
+          // Remove old images for this scene
+          const filtered = prev.filter(img => img.sceneIndex !== sceneIndex);
+          // Add new images
+          return [...filtered, ...updatedImages];
+        });
+
+        // Also update the result state
+        setResult(prev => ({
+          ...prev,
+          scenes: prev.scenes.map((s: any, idx: number) => {
+            const currentSceneIndex = s.index ?? (idx + 1);
+            if (currentSceneIndex === sceneIndex) {
+              return {
+                ...s,
+                imageUrls: scene.imageUrls,
+              };
+            }
+            return s;
+          }),
+        }));
+
+        alert(`Fetched ${scene.imageUrls.length} image(s) for scene ${sceneIndex}`);
+      } else {
+        alert(`No images found in database for scene ${sceneIndex}`);
+      }
+    } catch (error) {
+      console.error('Error fetching image:', error);
+      alert(error instanceof Error ? error.message : 'Failed to fetch image');
+    }
+  };
+
 
   // Replace placeholders in text with actual input values
   const replacePlaceholders = (text: string, inputs: any): string => {
@@ -472,70 +973,38 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
     return parts.join('\n\n');
   };
 
-  const handleGenerateImages = async (referenceImages: File[], model: string, numImages: number, aspectRatio: string, size: string) => {
-    setShowImageDialog(false);
-    setGeneratingImages(true);
 
-    try {
-      // Upload reference images
-      const referenceImageUrls = await Promise.all(
-        referenceImages.map(file => uploadImageToServer(file))
-      );
-
-      // Check if projectId is available (required for background generation)
-      if (!result.projectId) {
-        alert('Project ID is missing. Cannot start background image generation.');
-        setGeneratingImages(false);
-        return;
-      }
-
-      // Start background image generation
-      const response = await fetch('/api/generate-all-images', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: result.projectId,
-          scenes: result.scenes,
-          referenceImageUrls: referenceImageUrls,
-          model,
-          numImages,
-          aspectRatio,
-          size,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to start image generation');
-      }
-
-      const data = await response.json();
-      
-      // Show success message
-      alert(
-        'Image generation started in the background!\n\n' +
-        'Images will be generated and saved automatically even if you close this page.\n' +
-        'You can refresh the page later to see the generated images.'
-      );
-
-      // Mark that background generation has started
-      setBackgroundGenerationStarted(true);
-      setGeneratingImages(false);
-      
-    } catch (error) {
-      console.error('Error starting image generation:', error);
-      alert(
-        error instanceof Error 
-          ? `Failed to start image generation: ${error.message}`
-          : 'Failed to start image generation. Please try again.'
-      );
-      setGeneratingImages(false);
-    }
-  };
+  // Check if we're still processing (scenes not yet generated)
+  // Status can be 'pending' or we check if scenes are empty
+  const isProcessing = (result as any).status === 'pending' || result.scenes.length === 0;
+  
+  // Check if all scenes have at least one image
+  const allScenesHaveImages = result.scenes.length > 0 && result.scenes.every((scene: any) => 
+    scene.imageUrls && scene.imageUrls.length > 0
+  );
+  
+  // Only show background generation message if images are being generated AND not all scenes have images yet
+  const showImageGenerationMessage = backgroundGenerationStarted && !isProcessing && !allScenesHaveImages;
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {backgroundGenerationStarted && (
+      {isProcessing && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-5 h-5 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin mt-0.5"></div>
+            <div className="flex-1">
+              <p className="text-sm sm:text-base text-white font-medium">
+                Generating prompts and scenes...
+              </p>
+              <p className="text-xs sm:text-sm text-gray-400 mt-1">
+                You can close this page and come back later. Generation will continue in the background.
+                Scenes will appear automatically when ready.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {showImageGenerationMessage && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <div className="flex items-start gap-3">
             <div className="w-5 h-5 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin mt-0.5"></div>
@@ -555,15 +1024,48 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
       <div className="bg-black rounded-xl p-4 sm:p-6 shadow-sm border border-gray-800">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-base sm:text-lg font-semibold text-white">Generated Scenes</h2>
-          <button
-            onClick={() => setShowImageDialog(true)}
-            className="px-4 py-2 bg-[#D1FE17] text-black rounded-lg hover:bg-[#B8E014] active:bg-[#9FC211] transition-all duration-200 text-sm font-medium"
-          >
-            Generate Images
-          </button>
+          {result.projectId && result.scenes.length > 0 && !isProcessing && (
+            <button
+              onClick={handleRegenerateAllImages}
+              disabled={regeneratingAll}
+              className="px-3 py-1.5 bg-[#D1FE17] text-black text-xs font-medium rounded-lg hover:bg-[#B8E014] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              title="Regenerate all images for all scenes"
+            >
+              {regeneratingAll ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                  Regenerating...
+                </>
+              ) : (
+                <>
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                  Regenerate All Images
+                </>
+              )}
+            </button>
+          )}
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
-          {result.scenes.map((scene: any, idx: number) => {
+        {isProcessing && result.scenes.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="w-12 h-12 border-4 border-[#D1FE17] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-gray-400">Generating scenes... This may take a few minutes.</p>
+            <p className="text-sm text-gray-500 mt-2">You can close this page and check back later.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+            {result.scenes.map((scene: any, idx: number) => {
             // Support both new and old schema formats
             const sceneIndex = scene.index ?? (idx + 1);
             const scenePurpose = scene.purpose ?? scene.shotType ?? 'Scene';
@@ -620,22 +1122,10 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                       </div>
                     </>
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200">
-                      <div className="text-center p-2">
-                        <svg
-                          className="w-8 h-8 mx-auto text-gray-400 mb-1"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                          />
-                        </svg>
-                        <p className="text-[10px] text-gray-500">No image</p>
+                    <div className="w-full h-full flex items-center justify-center bg-gray-800">
+                      <div className="text-center">
+                        <div className="w-8 h-8 border-4 border-[#D1FE17] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                        <p className="text-[10px] text-gray-400">Generating...</p>
                       </div>
                     </div>
                   )}
@@ -656,32 +1146,115 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
                         {imagePrompt || 'No prompt available'}
                       </p>
                     </div>
-                    {/* Info icon */}
-                    {(scene.generationContext || scene.agentContributions) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedScene(sceneIndex);
-                        }}
-                        className="p-0.5 text-gray-400 hover:text-[#D1FE17] hover:bg-[#D1FE17]/20 rounded transition-colors flex-shrink-0 ml-1"
-                        title="View generation breakdown"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-3 w-3"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                      {/* Debug: Show URL button */}
+                      {result.projectId && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleShowImageUrl(sceneIndex);
+                          }}
+                          className="p-0.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/20 rounded transition-colors"
+                          title="Show image URL from database"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                      </button>
-                    )}
+                          <svg
+                            className="h-3 w-3"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                      {/* Debug: Fetch Image button */}
+                      {result.projectId && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleFetchImage(sceneIndex);
+                          }}
+                          className="p-0.5 text-green-400 hover:text-green-300 hover:bg-green-500/20 rounded transition-colors"
+                          title="Manually fetch image from database"
+                        >
+                          <svg
+                            className="h-3 w-3"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0L8 8m4-4v12"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                      {/* Regenerate button for this scene */}
+                      {result.projectId && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRegenerateScene(sceneIndex);
+                          }}
+                          disabled={regeneratingScenes.has(sceneIndex)}
+                          className="p-0.5 text-gray-400 hover:text-[#D1FE17] hover:bg-[#D1FE17]/20 rounded transition-colors"
+                          title="Regenerate images for this scene"
+                        >
+                          {regeneratingScenes.has(sceneIndex) ? (
+                            <div className="w-3 h-3 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin"></div>
+                          ) : (
+                            <svg
+                              className="h-3 w-3"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                              />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+                      {/* Info icon */}
+                      {(scene.generationContext || scene.agentContributions) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedScene(sceneIndex);
+                          }}
+                          className="p-0.5 text-gray-400 hover:text-[#D1FE17] hover:bg-[#D1FE17]/20 rounded transition-colors"
+                          title="View generation breakdown"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-3 w-3"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Expandable Details */}
@@ -759,31 +1332,117 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
               </div>
             );
           })}
-        </div>
+          </div>
+        )}
       </div>
 
       {generatedImages.length > 0 && (
-        <ImageCarousel
-          images={generatedImages}
-          onImageClick={setSelectedImage}
-          onSkip={(image) => {
-            // Find and abort the request for this image
-            const requestKey = `${image.sceneIndex}-${image.imageIndex ?? 0}`;
-            const abortController = activeRequestsRef.current.get(requestKey);
-            if (abortController) {
-              abortController.abort();
-              activeRequestsRef.current.delete(requestKey);
-            }
-            // Remove the generating placeholder
-            setGeneratedImages(prev =>
-              prev.filter(img => !(
-                img.sceneIndex === image.sceneIndex && 
-                img.generating && 
-                (img.imageIndex ?? 0) === (image.imageIndex ?? 0)
-              ))
-            );
-          }}
-        />
+        <div className="space-y-4">
+          <ImageCarousel
+            images={generatedImages}
+            onImageClick={setSelectedImage}
+            selectedImages={selectedImageIds}
+            onImageSelect={handleImageSelect}
+            onSkip={(image) => {
+              // Find and abort the request for this image
+              const requestKey = `${image.sceneIndex}-${image.imageIndex ?? 0}`;
+              const abortController = activeRequestsRef.current.get(requestKey);
+              if (abortController) {
+                abortController.abort();
+                activeRequestsRef.current.delete(requestKey);
+              }
+              // Remove the generating placeholder
+              setGeneratedImages(prev =>
+                prev.filter(img => !(
+                  img.sceneIndex === image.sceneIndex && 
+                  img.generating && 
+                  (img.imageIndex ?? 0) === (image.imageIndex ?? 0)
+                ))
+              );
+            }}
+          />
+          
+          {selectedImageIds.size > 0 && (
+            <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-white">
+                  {selectedImageIds.size} image{selectedImageIds.size > 1 ? 's' : ''} selected
+                </p>
+                <button
+                  onClick={handleGenerateVideo}
+                  disabled={generatingVideo}
+                  className="px-4 py-2 bg-[#D1FE17] text-black font-medium rounded-lg hover:bg-[#B8E014] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                >
+                  {generatingVideo ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                      Generating...
+                    </>
+                  ) : (
+                    'Generate Video'
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {generatedVideos.length > 0 && (
+            <div className="bg-gray-900 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-800">
+              <h2 className="text-base sm:text-lg font-semibold text-white mb-4">Generated Videos</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {generatedVideos.map((video) => (
+                  <div
+                    key={video.id}
+                    className="border border-gray-800 rounded-lg overflow-hidden bg-black"
+                  >
+                    {video.generating ? (
+                      <div className="w-full aspect-[9/16] bg-gray-800 flex items-center justify-center">
+                        <div className="text-center">
+                          <div className="w-8 h-8 border-4 border-[#D1FE17] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                          <p className="text-xs text-gray-400">Generating video...</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <video
+                          src={video.url}
+                          className="w-full aspect-[9/16] object-cover"
+                          controls
+                        />
+                        <div className="p-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-gray-400">
+                              {video.imageUrls.length} image{video.imageUrls.length > 1 ? 's' : ''}
+                            </p>
+                            <button
+                              onClick={() => handleDownloadVideo(video)}
+                              className="px-3 py-1.5 bg-[#D1FE17] text-black text-xs font-medium rounded hover:bg-[#B8E014] transition-colors flex items-center gap-1.5"
+                            >
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                                />
+                              </svg>
+                              Download
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
 
@@ -821,18 +1480,12 @@ export default function ProjectResults({ result, onStartNew }: ProjectResultsPro
         }
       })()}
 
-      {/* Image Generation Dialog */}
-      <ImageGenerationDialog
-        isOpen={showImageDialog}
-        onClose={() => setShowImageDialog(false)}
-        onGenerate={handleGenerateImages}
-        generating={generatingImages}
-      />
-
       {/* Image Viewer */}
       <ImageViewer
         image={selectedImage}
+        images={generatedImages.filter(img => !img.generating)}
         onClose={() => setSelectedImage(null)}
+        onNavigate={setSelectedImage}
       />
     </div>
   );

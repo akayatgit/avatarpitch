@@ -109,7 +109,11 @@ export default function AgentProgressFlow({
         
         {isFinalizing ? (
           <div className="flex items-center justify-center py-12">
-            <p className="text-lg text-gray-700 font-medium">Crafting your Prompts...</p>
+            <div className="text-center">
+              <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+              <p className="text-lg text-gray-700 font-medium">Completing generation...</p>
+              <p className="text-sm text-gray-500 mt-1">Finalizing scenes and prompts</p>
+            </div>
           </div>
         ) : (
           <div className="bg-gray-50 rounded-lg p-4 overflow-x-auto overflow-y-hidden">

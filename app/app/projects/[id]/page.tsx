@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 import NetworkError from '@/components/NetworkError';
 import ProjectResultsClient from '@/components/content-creation/ProjectResultsClient';
+import { getCurrentUser } from '@/lib/session';
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';
@@ -19,8 +20,11 @@ export default async function ProjectDetailPage({
   const projectId = resolvedParams.id;
 
   try {
+    // Get current user
+    const user = await getCurrentUser();
+    
     // Fetch from content_creation_requests
-    const { data: request, error: requestError } = await supabaseAdmin
+    let query = supabaseAdmin
       .from('content_creation_requests')
       .select(`
         id,
@@ -30,12 +34,22 @@ export default async function ProjectDetailPage({
         status,
         video_url,
         created_at,
+        user_id,
         content_types:content_type_id (
           name
         )
       `)
-      .eq('id', projectId)
-      .single();
+      .eq('id', projectId);
+
+    // If user is logged in, ensure they can only access their own projects
+    if (user?.id) {
+      query = query.eq('user_id', user.id);
+    } else {
+      // Guest users cannot access projects
+      notFound();
+    }
+
+    const { data: request, error: requestError } = await query.single();
 
     if (requestError && isSupabaseNetworkError(requestError)) {
       return <NetworkError message="Unable to load project. Please check your internet connection." />;

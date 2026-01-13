@@ -8,10 +8,7 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export default async function Dashboard() {
-  console.log('[Dashboard] Function started');
-  
   // Fetch content types
-  console.log('[Dashboard] Fetching content types...');
   let contentTypes: any[] = [];
   try {
     const { data: contentTypesData, error: contentTypesError } = await supabaseAdmin
@@ -20,7 +17,6 @@ export default async function Dashboard() {
       .order('name', { ascending: true });
     
     if (contentTypesError && isSupabaseNetworkError(contentTypesError)) {
-      console.error('[Dashboard] Network error fetching content types');
       return <NetworkError message="Unable to load content types. Please check your internet connection." />;
     }
     
@@ -28,13 +24,10 @@ export default async function Dashboard() {
       contentTypes = contentTypesData;
     }
   } catch (error: any) {
-    console.error('[Dashboard] Unexpected error fetching content types:', error);
     if (isSupabaseNetworkError(error)) {
       return <NetworkError message="Unable to load content types. Please check your internet connection." />;
     }
   }
-
-  console.log('[Dashboard] Starting render...');
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8 min-h-[calc(100vh-4rem)]">

@@ -162,9 +162,13 @@ Output ONLY the scene list as plain text. No JSON, no formatting, no titles. Jus
   // Limit to maxScenes
   const finalScenes = scenes.slice(0, Math.min(maxScenes, scenes.length));
 
-  // Save to memory
-  memory.chatHistory.push(new HumanMessage(userPrompt));
-  memory.chatHistory.push(new AIMessage(content));
+  // Save condensed summary to memory instead of full prompts
+  // Store only essential scene planning information to prevent token limit issues
+  const condensedUserPrompt = `[Scene Planning] Planning ${minScenes}-${maxScenes} scenes for content generation`;
+  const condensedAIResponse = content.substring(0, 1000) + (content.length > 1000 ? '...' : '');
+  
+  memory.chatHistory.push(new HumanMessage(condensedUserPrompt));
+  memory.chatHistory.push(new AIMessage(condensedAIResponse));
 
   return {
     sceneCount: finalScenes.length,

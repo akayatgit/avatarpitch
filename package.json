@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -11,16 +11,19 @@
   "dependencies": {
     "@langchain/core": "^1.1.8",
     "@langchain/openai": "^0.3.7",
-    "@supabase/supabase-js": "^2.87.3",
+    "@supabase/ssr": "^0.5.2",
+    "@supabase/supabase-js": "^2.90.0",
     "@vercel/blob": "^2.0.0",
     "@xyflow/react": "^12.10.0",
     "langchain": "^1.2.3",
     "lucide-react": "^0.561.0",
     "next": "^14.2.0",
+    "next-auth": "^5.0.0-beta.30",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "reactflow": "^11.11.4",
     "replicate": "^1.4.0",
+    "tiktoken": "^1.0.22",
     "zod": "^3.22.4"
   },
   "devDependencies": {
