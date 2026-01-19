@@ -65,14 +65,24 @@ function createCondensedUserPromptSummary(
   },
   previousPrompt: string | null
 ): string {
+  const previousPromptText =
+    typeof previousPrompt === 'string'
+      ? previousPrompt
+      : previousPrompt == null
+        ? ''
+        : JSON.stringify(previousPrompt);
   const sceneInfo = sceneContext.sceneIndex 
     ? `Scene ${sceneContext.sceneIndex}: ${sceneContext.scenePurpose || 'N/A'}` 
     : 'Scene planning';
   
   if (sceneContext.isFinalAgent) {
-    return `[${agent.name} (${agent.role}) - Final Agent] ${sceneInfo}. Previous prompt: ${previousPrompt ? previousPrompt.substring(0, 200) + '...' : 'None'}`;
+    return `[${agent.name} (${agent.role}) - Final Agent] ${sceneInfo}. Previous prompt: ${
+      previousPromptText ? previousPromptText.substring(0, 200) + '...' : 'None'
+    }`;
   } else {
-    return `[${agent.name} (${agent.role})] ${sceneInfo}. Refining prompt: ${previousPrompt ? previousPrompt.substring(0, 200) + '...' : 'Creating initial prompt'}`;
+    return `[${agent.name} (${agent.role})] ${sceneInfo}. Refining prompt: ${
+      previousPromptText ? previousPromptText.substring(0, 200) + '...' : 'Creating initial prompt'
+    }`;
   }
 }
 
@@ -158,7 +168,9 @@ export async function executeReActAgent(
   // Build dynamic system prompt from contentType + agent role
   const systemPromptBase = contentType.prompting?.systemPromptTemplate || '';
   const agentRoleContext = `You are ${agent.name}, a ${agent.role}. ${agent.systemPrompt || agent.prompt || ''}`;
-  const dynamicSystemPrompt = `${systemPromptBase}\n\n${agentRoleContext}`;
+  const dynamicSystemPrompt = `${systemPromptBase}\n\n${agentRoleContext}`
+    .replace(/[{]/g, '{{')
+    .replace(/[}]/g, '}}');
   
   // Get chat history from global memory
   const memory = getGlobalMemory();
@@ -168,7 +180,19 @@ export async function executeReActAgent(
   
   if (sceneContext.isFinalAgent) {
     // Final agent: incorporate actual input values and produce scene output
-    const inputValuesText = Object.entries(dynamicInputs)
+    // Filter out inputs that are for on-screen text only (Script, etc.) - these should NOT be in image prompts
+    const imagePromptInputs = Object.entries(dynamicInputs)
+      .filter(([key]) => {
+        const lowerKey = key.toLowerCase();
+        // Exclude script/text-related inputs from image prompt
+        return !lowerKey.includes('script') && 
+               !lowerKey.includes('text') && 
+               !lowerKey.includes('caption') &&
+               !lowerKey.includes('subtitle') &&
+               !lowerKey.includes('quote');
+      });
+    
+    const inputValuesText = imagePromptInputs
       .map(([key, value]) => {
         if (Array.isArray(value)) {
           return `${key}: ${value.join(', ')}`;
@@ -184,8 +208,8 @@ IMPORTANT: The system prompt above contains CRITICAL CONSTRAINTS that MUST be fo
 Previous collaborative work from other agents:
 ${previousPrompt || 'No previous work'}
 
-Actual input values to incorporate:
-${inputValuesText}
+Actual input values to incorporate (for image description only - exclude script/text inputs):
+${inputValuesText || 'No additional input values to incorporate'}
 
 Scene context:
 - Scene Index: ${sceneContext.sceneIndex || 'N/A'}
@@ -195,24 +219,28 @@ NOTE: If the Scene Purpose conflicts with system prompt requirements (e.g., syst
 
 CRITICAL: You MUST PRESERVE ALL suggestions and enhancements from previous agents. Do NOT remove or discard any contributions from the collaborative work above. Your role is to:
 - Keep all previous suggestions intact
-- Replace generic/placeholder words with actual input values
+- Replace generic/placeholder words with actual input values (excluding script/text inputs)
 - Ensure system prompt constraints are met
 - Polish and finalize the prompt for image generation
 - Do NOT remove elements that previous agents suggested (e.g., if they mentioned "use a model", keep it; if they specified lighting techniques, keep them)
+- Do NOT add script text, quotes, or on-screen text content to the image prompt - those are handled separately
+
+IMPORTANT: Do NOT incorporate script text, quotes, or on-screen text content into the image prompt. The image prompt should describe what to SEE, not what text to display. Script/text inputs are used separately for on-screen text generation and should NOT appear in the image description.
 
 Your task:
 1. Review the system prompt constraints FIRST - these are mandatory requirements
 2. Review the previous collaborative prompt carefully - it contains valuable contributions from multiple agents
 3. PRESERVE all suggestions and enhancements from previous agents - do not remove them
-4. Replace all generic/placeholder words with the actual input values provided above
+4. Replace all generic/placeholder words with the actual input values provided above (excluding script/text inputs)
 5. Ensure the final prompt strictly follows all system prompt requirements for this scene index
 6. Output ONLY a single, complete, detailed image prompt as plain text that:
    - Includes ALL previous agents' suggestions
-   - Incorporates all actual input values
+   - Incorporates relevant actual input values (visual elements only, NOT script/text)
    - Respects system prompt constraints
    - Is ready for image generation (detailed, specific, comprehensive)
+   - Describes what to SEE, not what text to display
 
-The prompt should be the culmination of all previous work, with actual values substituted and system constraints applied.
+The prompt should be the culmination of all previous work, with actual values substituted and system constraints applied. Do NOT add script quotes or text content to the image description.
 
 Output ONLY the image prompt text. No JSON, no formatting, no titles, no explanations. Just the prompt.`;
   } else {

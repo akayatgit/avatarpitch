@@ -16,7 +16,7 @@ export default function ImageGenerationDialog({
   generating,
 }: ImageGenerationDialogProps) {
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('seedream-4.5');
+  const [selectedModel, setSelectedModel] = useState<string>('flux-schnell');
   const [numImages, setNumImages] = useState<number>(1);
   const [aspectRatio, setAspectRatio] = useState<string>('9:16');
   const [size, setSize] = useState<string>('4K');
@@ -36,7 +36,8 @@ export default function ImageGenerationDialog({
   };
 
   const handleGenerate = () => {
-    if (referenceImages.length > 0) {
+    // Flux-Schnell doesn't require reference images
+    if (selectedModel === 'flux-schnell' || referenceImages.length > 0) {
       onGenerate(referenceImages, selectedModel, numImages, aspectRatio, size);
     }
   };
@@ -57,52 +58,6 @@ export default function ImageGenerationDialog({
         </div>
 
         <div className="space-y-4">
-          {/* Reference Images Upload */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Reference Images *
-            </label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl hover:border-primary-500 transition-colors duration-200 text-gray-600"
-            >
-              <div className="flex flex-col items-center">
-                <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                <span>Click to upload reference images</span>
-              </div>
-            </button>
-            {referenceImages.length > 0 && (
-              <div className="mt-3 grid grid-cols-3 gap-2">
-                {referenceImages.map((file, index) => (
-                  <div key={index} className="relative group">
-                    <img
-                      src={URL.createObjectURL(file)}
-                      alt={`Reference ${index + 1}`}
-                      className="w-full h-24 object-cover rounded-lg"
-                    />
-                    <button
-                      onClick={() => removeImage(index)}
-                      className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Model Selection */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -110,14 +65,74 @@ export default function ImageGenerationDialog({
             </label>
             <select
               value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
+              onChange={(e) => {
+                setSelectedModel(e.target.value);
+                // Clear reference images when switching to Flux-Schnell
+                if (e.target.value === 'flux-schnell') {
+                  setReferenceImages([]);
+                }
+              }}
               className="input-field"
             >
+              <option value="flux-schnell">Flux Schnell</option>
               <option value="seedream-4.5">Seedream 4.5</option>
               <option value="nano-banana-pro">Nano Banana Pro</option>
               <option value="nano-banana">Nano Banana</option>
             </select>
+            {selectedModel === 'flux-schnell' && (
+              <p className="mt-1 text-xs text-gray-500">
+                Flux Schnell doesn't require reference images - it generates images from text prompts only.
+              </p>
+            )}
           </div>
+
+          {/* Reference Images Upload - Hidden for Flux-Schnell */}
+          {selectedModel !== 'flux-schnell' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Reference Images *
+              </label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-xl hover:border-primary-500 transition-colors duration-200 text-gray-600"
+              >
+                <div className="flex flex-col items-center">
+                  <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span>Click to upload reference images</span>
+                </div>
+              </button>
+              {referenceImages.length > 0 && (
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {referenceImages.map((file, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={URL.createObjectURL(file)}
+                        alt={`Reference ${index + 1}`}
+                        className="w-full h-24 object-cover rounded-lg"
+                      />
+                      <button
+                        onClick={() => removeImage(index)}
+                        className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Number of Images */}
           <div>
@@ -194,7 +209,7 @@ export default function ImageGenerationDialog({
             </button>
             <button
               onClick={handleGenerate}
-              disabled={referenceImages.length === 0 || generating}
+              disabled={(selectedModel !== 'flux-schnell' && referenceImages.length === 0) || generating}
               className="flex-1 btn-primary text-sm py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {generating ? 'Generating...' : 'Generate'}

@@ -18,7 +18,10 @@ export async function POST(request: NextRequest) {
       numImages,
       aspectRatio,
       size,
+      generationMode = 'fast',
     } = await request.json();
+
+    console.log(`[generate-all-images] Received request for project ${projectId}, mode: ${generationMode}`);
 
     if (!projectId) {
       return NextResponse.json({ error: 'Project ID is required' }, { status: 400 });
@@ -39,7 +42,8 @@ export async function POST(request: NextRequest) {
         ? [referenceImageUrls]
         : [];
 
-    if (imageUrls.length === 0) {
+    // Flux-Schnell doesn't require reference images
+    if (model !== 'flux-schnell' && imageUrls.length === 0) {
       return NextResponse.json(
         { error: 'At least one reference image URL is required' },
         { status: 400 }
@@ -54,7 +58,8 @@ export async function POST(request: NextRequest) {
       model,
       numImages || 1,
       aspectRatio || '9:16',
-      size || '4K'
+      size || '4K',
+      generationMode
     ).catch((error) => {
       console.error('Background image generation error:', error);
     });
@@ -78,6 +83,26 @@ export async function POST(request: NextRequest) {
  * Process all scenes and generate images in the background
  * Saves images incrementally to the database as they're generated
  */
+// Helper function to check if generation should be stopped
+async function shouldStopGeneration(projectId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('content_creation_requests')
+      .select('status')
+      .eq('id', projectId)
+      .single();
+
+    if (error || !data) {
+      return false;
+    }
+
+    return data.status === 'cancelled';
+  } catch (error) {
+    console.error('Error checking stop status:', error);
+    return false;
+  }
+}
+
 export async function processImagesInBackground(
   projectId: string,
   scenes: any[],
@@ -85,7 +110,8 @@ export async function processImagesInBackground(
   model: string,
   numImages: number,
   aspectRatio: string,
-  size: string
+  size: string,
+  generationMode: 'fast' | 'sequential' = 'fast'
 ) {
   const replicate = new Replicate({
     auth: process.env.REPLICATE_API_TOKEN!,
@@ -93,6 +119,12 @@ export async function processImagesInBackground(
 
   const modelConfig = getModelConfig(model as ImageGenerationModel);
   const successfulImages: Array<{ sceneIndex: number; url: string }> = [];
+
+  // Check if generation should be stopped before starting
+  if (await shouldStopGeneration(projectId)) {
+    console.log(`[${projectId}] Generation stopped before starting`);
+    return;
+  }
 
   // Create all image generation tasks
   const imageGenerationTasks: Array<{
@@ -120,54 +152,141 @@ export async function processImagesInBackground(
     }
   }
 
-  // Execute all image generations in parallel
-  const imagePromises = imageGenerationTasks.map(async ({ sceneIndex, scenePrompt, imageIndex }) => {
-    try {
-      // Build input using the model config
-      const input = modelConfig.buildInput(
-        referenceImageUrls,
-        scenePrompt,
-        null, // outfitUrl - can be added later
-        1, // Always generate 1 image per call
-        aspectRatio,
-        size
-      );
-
-      // Run the model
-      const output = await replicate.run(modelConfig.modelId as `${string}/${string}`, {
-        input,
-      });
-
-      // Process output
-      const results = await modelConfig.processOutput(output);
-
-      if (results && results.length > 0 && results[0].url) {
-        const imageUrl = results[0].url;
-        
-        // Save to database immediately after each image is generated
-        // Pass imageIndex to track multiple images per scene
-        await saveImageToDatabase(projectId, sceneIndex, imageUrl, imageIndex);
-
-        return { success: true, sceneIndex, url: imageUrl };
+  if (generationMode === 'sequential') {
+    // Sequential mode: generate one image at a time, using previous scene's first image as reference
+    console.log(`[${projectId}] Starting SEQUENTIAL image generation mode with ${imageGenerationTasks.length} tasks`);
+    
+    let currentReferenceImages = [...referenceImageUrls];
+    
+    // Sort tasks by scene index, then by image index to ensure proper order
+    const sortedTasks = [...imageGenerationTasks].sort((a, b) => {
+      if (a.sceneIndex !== b.sceneIndex) {
+        return a.sceneIndex - b.sceneIndex;
+      }
+      return a.imageIndex - b.imageIndex;
+    });
+    
+    // Track the first image from each scene to use as reference for the next scene
+    const firstImageByScene = new Map<number, string>();
+    
+    // Process each image one at a time (truly sequential)
+    for (let i = 0; i < sortedTasks.length; i++) {
+      const { sceneIndex, scenePrompt, imageIndex } = sortedTasks[i];
+      
+      // Check if generation should be stopped
+      if (await shouldStopGeneration(projectId)) {
+        console.log(`[${projectId}] Generation stopped at task ${i + 1}/${sortedTasks.length} (Scene ${sceneIndex}, Image ${imageIndex})`);
+        break;
       }
 
-      return { success: false, sceneIndex, error: 'No image URL in results' };
-    } catch (error) {
-      console.error(`[Scene ${sceneIndex}] Generation failed:`, error instanceof Error ? error.message : 'Unknown error');
-      return { success: false, sceneIndex, error: error instanceof Error ? error.message : 'Unknown error' };
+      console.log(`[${projectId}] [SEQUENTIAL] Processing task ${i + 1}/${sortedTasks.length}: Scene ${sceneIndex}, Image ${imageIndex}`);
+
+      try {
+        // Build input using current reference images (includes previous scene's first image)
+        const input = modelConfig.buildInput(
+          currentReferenceImages,
+          scenePrompt,
+          null, // outfitUrl - can be added later
+          1, // Always generate 1 image per call
+          aspectRatio,
+          size
+        );
+
+        // Run the model (this will take time - truly sequential)
+        const output = await replicate.run(modelConfig.modelId as `${string}/${string}`, {
+          input,
+        });
+
+        // Process output
+        const results = await modelConfig.processOutput(output);
+
+        if (results && results.length > 0 && results[0].url) {
+          const imageUrl = results[0].url;
+          
+          // Save to database immediately after each image is generated
+          await saveImageToDatabase(projectId, sceneIndex, imageUrl, imageIndex);
+          
+          successfulImages.push({
+            sceneIndex,
+            url: imageUrl,
+          });
+
+          // If this is the first image (imageIndex === 0) of a scene, save it for the next scene
+          if (imageIndex === 0 && !firstImageByScene.has(sceneIndex) && model !== 'flux-schnell') {
+            firstImageByScene.set(sceneIndex, imageUrl);
+            
+            // Update reference images for the next scene
+            // Keep original reference images and add the first image from the current scene
+            currentReferenceImages = [...referenceImageUrls, imageUrl];
+            
+            console.log(`[${projectId}] [SEQUENTIAL] Scene ${sceneIndex} first image saved. Will use as reference for next scene.`);
+          }
+
+          console.log(`[${projectId}] [SEQUENTIAL] Completed task ${i + 1}/${sortedTasks.length}: Scene ${sceneIndex}, Image ${imageIndex}`);
+        } else {
+          console.error(`[${projectId}] [SEQUENTIAL] No image URL in results for Scene ${sceneIndex}, Image ${imageIndex}`);
+        }
+      } catch (error) {
+        console.error(`[${projectId}] [SEQUENTIAL] Generation failed for Scene ${sceneIndex}, Image ${imageIndex}:`, error instanceof Error ? error.message : 'Unknown error');
+      }
     }
-  });
+    
+    console.log(`[${projectId}] [SEQUENTIAL] Completed all ${sortedTasks.length} tasks. Generated ${successfulImages.length} images.`);
+  } else {
+    // Fast mode: execute all image generations in parallel
+    const imagePromises = imageGenerationTasks.map(async ({ sceneIndex, scenePrompt, imageIndex }) => {
+      // Check if generation should be stopped before processing this task
+      if (await shouldStopGeneration(projectId)) {
+        return { success: false, sceneIndex, error: 'Generation stopped' };
+      }
 
-  // Wait for all image generations to complete
-  const imageResults = await Promise.allSettled(imagePromises);
+      try {
+        // Build input using the model config
+        const input = modelConfig.buildInput(
+          referenceImageUrls,
+          scenePrompt,
+          null, // outfitUrl - can be added later
+          1, // Always generate 1 image per call
+          aspectRatio,
+          size
+        );
 
-  // Collect successful images
-  for (const result of imageResults) {
-    if (result.status === 'fulfilled' && result.value.success && result.value.url) {
-      successfulImages.push({
-        sceneIndex: result.value.sceneIndex,
-        url: result.value.url,
-      });
+        // Run the model
+        const output = await replicate.run(modelConfig.modelId as `${string}/${string}`, {
+          input,
+        });
+
+        // Process output
+        const results = await modelConfig.processOutput(output);
+
+        if (results && results.length > 0 && results[0].url) {
+          const imageUrl = results[0].url;
+          
+          // Save to database immediately after each image is generated
+          // Pass imageIndex to track multiple images per scene
+          await saveImageToDatabase(projectId, sceneIndex, imageUrl, imageIndex);
+
+          return { success: true, sceneIndex, url: imageUrl };
+        }
+
+        return { success: false, sceneIndex, error: 'No image URL in results' };
+      } catch (error) {
+        console.error(`[Scene ${sceneIndex}] Generation failed:`, error instanceof Error ? error.message : 'Unknown error');
+        return { success: false, sceneIndex, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    });
+
+    // Wait for all image generations to complete
+    const imageResults = await Promise.allSettled(imagePromises);
+
+    // Collect successful images
+    for (const result of imageResults) {
+      if (result.status === 'fulfilled' && result.value.success && result.value.url) {
+        successfulImages.push({
+          sceneIndex: result.value.sceneIndex,
+          url: result.value.url,
+        });
+      }
     }
   }
 }

@@ -12,6 +12,7 @@ export async function POST(request: NextRequest) {
     const {
       projectId,
       sceneIndex, // Optional: if provided, regenerate only this scene
+      updatedImagePrompt,
       referenceImageUrls,
       model,
       numImages,
@@ -28,13 +29,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch current project data
-    const { data: request, error: fetchError } = await supabaseAdmin
+    const { data: requestData, error: fetchError } = await supabaseAdmin
       .from('content_creation_requests')
       .select('generated_output')
       .eq('id', projectId)
       .single();
 
-    if (fetchError || !request) {
+    if (fetchError || !requestData) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
@@ -42,9 +43,9 @@ export async function POST(request: NextRequest) {
     let generatedOutput: any = {};
     try {
       generatedOutput =
-        typeof request.generated_output === 'string'
-          ? JSON.parse(request.generated_output)
-          : request.generated_output || {};
+        typeof requestData.generated_output === 'string'
+          ? JSON.parse(requestData.generated_output)
+          : requestData.generated_output || {};
     } catch (e) {
       console.error('Error parsing generated_output:', e);
       generatedOutput = {};
@@ -66,6 +67,30 @@ export async function POST(request: NextRequest) {
 
       if (scenesToProcess.length === 0) {
         return NextResponse.json({ error: `Scene ${sceneIndex} not found` }, { status: 404 });
+      }
+    }
+
+    if (updatedImagePrompt && sceneIndex !== undefined && sceneIndex !== null) {
+      const updatedScenes = scenes.map((scene: any, idx: number) => {
+        const currentSceneIndex = scene.index ?? (idx + 1);
+        if (currentSceneIndex !== sceneIndex) {
+          return scene;
+        }
+        return {
+          ...scene,
+          imagePrompt: updatedImagePrompt,
+        };
+      });
+      generatedOutput.scenes = updatedScenes;
+
+      const { error: updateError } = await supabaseAdmin
+        .from('content_creation_requests')
+        .update({ generated_output: generatedOutput })
+        .eq('id', projectId);
+
+      if (updateError) {
+        console.error('Error updating scene prompt:', updateError);
+        return NextResponse.json({ error: 'Failed to update scene prompt' }, { status: 500 });
       }
     }
 
@@ -94,7 +119,9 @@ export async function POST(request: NextRequest) {
         ? [referenceImageUrls]
         : [];
 
-    if (imageUrls.length === 0) {
+    // Flux-Schnell doesn't require reference images
+    const selectedModel = model || 'flux-schnell';
+    if (selectedModel !== 'flux-schnell' && imageUrls.length === 0) {
       return NextResponse.json(
         { error: 'At least one reference image URL is required' },
         { status: 400 }
@@ -104,9 +131,15 @@ export async function POST(request: NextRequest) {
     // Start background processing (don't await - return immediately)
     processImagesInBackground(
       projectId,
-      scenesToProcess,
+      scenesToProcess.map((scene: any, idx: number) => {
+        if (!updatedImagePrompt || sceneIndex === undefined || sceneIndex === null) {
+          return scene;
+        }
+        const currentSceneIndex = scene.index ?? (idx + 1);
+        return currentSceneIndex === sceneIndex ? { ...scene, imagePrompt: updatedImagePrompt } : scene;
+      }),
       imageUrls,
-      model || 'seedream-4.5',
+      model || 'flux-schnell',
       numImages || 1,
       aspectRatio || '9:16',
       size || '4K'

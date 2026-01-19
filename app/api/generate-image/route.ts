@@ -14,7 +14,8 @@ export async function POST(request: NextRequest) {
     const imageUrls = Array.isArray(referenceImageUrls) ? referenceImageUrls : 
                      (referenceImageUrls ? [referenceImageUrls] : []);
 
-    if (imageUrls.length === 0) {
+    // Flux-Schnell doesn't require reference images
+    if (model !== 'flux-schnell' && imageUrls.length === 0) {
       return NextResponse.json({ error: 'At least one reference image URL is required' }, { status: 400 });
     }
 

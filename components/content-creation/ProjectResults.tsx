@@ -108,6 +108,8 @@ interface GeneratedVideo {
 
 export default function ProjectResults({ result: initialResult, onStartNew }: ProjectResultsProps) {
   const [downloading, setDownloading] = useState(false);
+  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [copyingPrompts, setCopyingPrompts] = useState(false);
   const [selectedScene, setSelectedScene] = useState<number | null>(null);
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
   const [backgroundGenerationStarted, setBackgroundGenerationStarted] = useState(false);
@@ -118,8 +120,17 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
   const [generatedVideos, setGeneratedVideos] = useState<GeneratedVideo[]>([]);
   const [generatingVideo, setGeneratingVideo] = useState(false);
+  const [showVideoModelDialog, setShowVideoModelDialog] = useState(false);
+  const [selectedVideoModel, setSelectedVideoModel] = useState<'seedance-1.5-pro' | 'veo-3.1'>('seedance-1.5-pro');
   const [regeneratingAll, setRegeneratingAll] = useState(false);
   const [regeneratingScenes, setRegeneratingScenes] = useState<Set<number>>(new Set());
+  const [showRegenerateSceneDialog, setShowRegenerateSceneDialog] = useState(false);
+  const [regenerateSceneIndex, setRegenerateSceneIndex] = useState<number | null>(null);
+  const [regeneratePrompt, setRegeneratePrompt] = useState('');
+  const [regenerateReferenceUrls, setRegenerateReferenceUrls] = useState('');
+  const [regenerateReferenceFiles, setRegenerateReferenceFiles] = useState<File[]>([]);
+  const [regeneratingSingleScene, setRegeneratingSingleScene] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const activeRequestsRef = useRef<Map<string, AbortController>>(new Map());
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -322,6 +333,101 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     setDownloading(false);
   };
 
+  const handleCopyAllPrompts = async () => {
+    if (result.scenes.length === 0) {
+      alert('No scenes available to copy prompts');
+      return;
+    }
+
+    setCopyingPrompts(true);
+
+    try {
+      // Get inputs from the first scene's generationContext if available
+      const inputs = result.scenes[0]?.generationContext?.inputs || {};
+
+      // Collect all prompts from all scenes
+      const allPrompts: string[] = [];
+
+      result.scenes.forEach((scene: any, idx: number) => {
+        const sceneIndex = scene.index ?? (idx + 1);
+        const scenePrompt = buildComprehensiveScenePrompt(scene, result.scenes);
+        
+        if (scenePrompt) {
+          allPrompts.push(`=== Scene ${sceneIndex} ===\n${scenePrompt}\n`);
+        }
+      });
+
+      if (allPrompts.length === 0) {
+        alert('No prompts found in scenes');
+        setCopyingPrompts(false);
+        return;
+      }
+
+      // Concatenate all prompts
+      const concatenatedPrompts = allPrompts.join('\n\n');
+
+      // Copy to clipboard
+      await navigator.clipboard.writeText(concatenatedPrompts);
+      alert(`Copied ${result.scenes.length} scene prompt(s) to clipboard!`);
+    } catch (error) {
+      console.error('Error copying prompts:', error);
+      alert('Failed to copy prompts to clipboard');
+    } finally {
+      setCopyingPrompts(false);
+    }
+  };
+
+  const handleDownloadAllImages = async () => {
+    const imagesToDownload = generatedImages.filter(img => !img.generating && img.url);
+    
+    if (imagesToDownload.length === 0) {
+      alert('No images available to download');
+      return;
+    }
+
+    setDownloadingAll(true);
+
+    try {
+      // Download images sequentially to avoid browser blocking
+      for (let i = 0; i < imagesToDownload.length; i++) {
+        const image = imagesToDownload[i];
+        try {
+          // Fetch the image
+          const response = await fetch(image.url);
+          const blob = await response.blob();
+          
+          // Get file extension from URL or default to jpg
+          const urlParts = image.url.split('.');
+          const extension = urlParts.length > 1 ? urlParts[urlParts.length - 1].split('?')[0] : 'jpg';
+          
+          // Create download link
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `scene-${image.sceneIndex}-image-${image.imageIndex ?? i + 1}.${extension}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          
+          // Small delay between downloads to avoid browser blocking
+          if (i < imagesToDownload.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        } catch (error) {
+          console.error(`Error downloading image ${i + 1}:`, error);
+        }
+      }
+      
+      alert(`Successfully downloaded ${imagesToDownload.length} image(s)`);
+    } catch (error) {
+      console.error('Error downloading images:', error);
+      alert('Failed to download some images. Please try again.');
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
   const totalDuration = result.scenes.reduce((sum: number, scene: any) => {
     // Note: durationSeconds may not be present in new schema (image-first generation)
     return sum + (scene.durationSeconds || 0);
@@ -344,7 +450,24 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     });
   };
 
-  const handleGenerateVideo = async () => {
+  const getSceneIndexValue = (scene: any, idx: number) => scene.index ?? (idx + 1);
+
+  const getSceneCoverImageUrl = (sceneIndex: number): string | null => {
+    const generated = generatedImages.find(img => img.sceneIndex === sceneIndex && !img.generating);
+    if (generated?.url) return generated.url;
+
+    const scene = result.scenes.find((s, idx) => getSceneIndexValue(s, idx) === sceneIndex);
+    return scene?.imageUrls?.[0] ?? null;
+  };
+
+  const getOrderedSelectedImages = (images: GeneratedImage[]) => {
+    return [...images].sort((a, b) => {
+      if (a.sceneIndex !== b.sceneIndex) return a.sceneIndex - b.sceneIndex;
+      return (a.imageIndex ?? 0) - (b.imageIndex ?? 0);
+    });
+  };
+
+  const handleGenerateVideo = async (videoModel: 'seedance-1.5-pro' | 'veo-3.1') => {
     if (selectedImageIds.size === 0) return;
 
     setGeneratingVideo(true);
@@ -367,8 +490,10 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
         return;
       }
 
+      const orderedSelectedImages = getOrderedSelectedImages(selectedImages);
+
       // Generate a video for each selected image
-      const videoPromises = selectedImages.map(async (image, index) => {
+      const videoPromises = orderedSelectedImages.map(async (image, index) => {
         // Create a unique video ID for each image
         const videoId = `video-${Date.now()}-${index}`;
         
@@ -385,6 +510,17 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
         setGeneratedVideos(prev => [...prev, newVideo]);
 
         try {
+          const sceneForImage = result.scenes.find((scene, idx) => {
+            const sceneIndex = scene.index ?? (idx + 1);
+            return sceneIndex === image.sceneIndex;
+          });
+          const sourcePrompt = sceneForImage
+            ? buildComprehensiveScenePrompt(sceneForImage, result.scenes)
+            : undefined;
+          const nextSelectedImage = orderedSelectedImages[index + 1];
+          const lastFrameImage = nextSelectedImage?.url ?? null;
+          const aspectRatio = getImageGenerationSettings().aspectRatio;
+
           // Call the API to generate video for this image
           const response = await fetch('/api/generate-video', {
             method: 'POST',
@@ -393,6 +529,10 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
             },
             body: JSON.stringify({
               imageUrls: [image.url], // Send single image URL
+              sourcePrompt, // Convert image prompt to video prompt server-side
+              lastFrameImage: lastFrameImage || undefined,
+              model: videoModel,
+              aspectRatio,
             }),
           });
 
@@ -503,11 +643,77 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     // Default settings
     return {
       referenceImageUrls: [],
-      model: 'seedream-4.5',
+      model: 'flux-schnell',
       numImages: 1,
       aspectRatio: '9:16',
       size: '4K',
     };
+  };
+
+  const uploadImageToServer = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('images', file);
+
+    const response = await fetch('/api/upload-image', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload image: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.url;
+  };
+
+  const handleStopGeneration = async () => {
+    if (!result.projectId) {
+      return;
+    }
+
+    setStopping(true);
+
+    try {
+      // Cancel all active requests
+      activeRequestsRef.current.forEach((controller) => {
+        controller.abort();
+      });
+      activeRequestsRef.current.clear();
+
+      // Stop video generation if in progress
+      if (generatingVideo) {
+        setGeneratingVideo(false);
+      }
+
+      // Call API to stop generation
+      const response = await fetch('/api/stop-generation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          projectId: result.projectId,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('Failed to stop generation');
+      }
+
+      // Clear refresh interval
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+
+      setBackgroundGenerationStarted(false);
+      alert('Generation stopped. Any ongoing tasks will be cancelled.');
+    } catch (error) {
+      console.error('Error stopping generation:', error);
+    } finally {
+      setStopping(false);
+    }
   };
 
   const handleRegenerateAllImages = async () => {
@@ -567,7 +773,10 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     }
   };
 
-  const handleRegenerateScene = async (sceneIndex: number) => {
+  const handleRegenerateScene = async (
+    sceneIndex: number,
+    options?: { updatedImagePrompt?: string; referenceImageUrls?: string[] }
+  ) => {
     if (!result.projectId) {
       alert('Project ID is required for regeneration');
       return;
@@ -575,6 +784,10 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
     const settings = getImageGenerationSettings();
     
+    if (options?.referenceImageUrls && options.referenceImageUrls.length > 0) {
+      settings.referenceImageUrls = options.referenceImageUrls;
+    }
+
     // Check if we have reference image URLs
     if (!settings.referenceImageUrls || settings.referenceImageUrls.length === 0) {
       const userInput = prompt(
@@ -602,6 +815,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
           projectId: result.projectId,
           sceneIndex,
           ...settings,
+          updatedImagePrompt: options?.updatedImagePrompt,
         }),
       });
 
@@ -615,6 +829,22 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
       
       // Restart polling to check for new images
       setBackgroundGenerationStarted(true);
+
+      if (options?.updatedImagePrompt) {
+        setResult(prev => ({
+          ...prev,
+          scenes: prev.scenes.map((scene, idx) => {
+            const currentSceneIndex = scene.index ?? (idx + 1);
+            if (currentSceneIndex !== sceneIndex) {
+              return scene;
+            }
+            return {
+              ...scene,
+              imagePrompt: options.updatedImagePrompt,
+            };
+          }),
+        }));
+      }
 
       // Show a brief success message
       console.log(`Scene ${sceneIndex} regeneration started`);
@@ -677,6 +907,46 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     } catch (error) {
       console.error('Error fetching image URL:', error);
       alert(error instanceof Error ? error.message : 'Failed to fetch image URL');
+    }
+  };
+
+  const openRegenerateSceneDialog = (sceneIndex: number) => {
+    const scene = result.scenes.find((s, idx) => (s.index ?? (idx + 1)) === sceneIndex);
+    setRegenerateSceneIndex(sceneIndex);
+    setRegeneratePrompt(scene?.imagePrompt ?? '');
+    setRegenerateReferenceUrls('');
+    setRegenerateReferenceFiles([]);
+    setShowRegenerateSceneDialog(true);
+  };
+
+  const handleRegenerateSceneWithEdits = async () => {
+    if (regenerateSceneIndex == null) {
+      return;
+    }
+
+    setRegeneratingSingleScene(true);
+    try {
+      const uploadedUrls =
+        regenerateReferenceFiles.length > 0
+          ? await Promise.all(regenerateReferenceFiles.map(file => uploadImageToServer(file)))
+          : [];
+      const manualUrls = regenerateReferenceUrls
+        .split(/[\n,]/)
+        .map(url => url.trim())
+        .filter(Boolean);
+      const referenceImageUrls = [...uploadedUrls, ...manualUrls];
+
+      await handleRegenerateScene(regenerateSceneIndex, {
+        updatedImagePrompt: regeneratePrompt.trim() || undefined,
+        referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+      });
+
+      setShowRegenerateSceneDialog(false);
+    } catch (error) {
+      console.error('Error regenerating scene with edits:', error);
+      alert(error instanceof Error ? error.message : 'Failed to regenerate scene');
+    } finally {
+      setRegeneratingSingleScene(false);
     }
   };
 
@@ -985,6 +1255,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   
   // Only show background generation message if images are being generated AND not all scenes have images yet
   const showImageGenerationMessage = backgroundGenerationStarted && !isProcessing && !allScenesHaveImages;
+  const isWideAspect = getImageGenerationSettings().aspectRatio === '16:9';
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -1025,36 +1296,138 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-base sm:text-lg font-semibold text-white">Generated Scenes</h2>
           {result.projectId && result.scenes.length > 0 && !isProcessing && (
-            <button
-              onClick={handleRegenerateAllImages}
-              disabled={regeneratingAll}
-              className="px-3 py-1.5 bg-[#D1FE17] text-black text-xs font-medium rounded-lg hover:bg-[#B8E014] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
-              title="Regenerate all images for all scenes"
-            >
-              {regeneratingAll ? (
-                <>
-                  <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-                  Regenerating...
-                </>
-              ) : (
-                <>
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                  Regenerate All Images
-                </>
+            <div className="flex items-center gap-2">
+              {(isProcessing || backgroundGenerationStarted || generatingVideo) && (
+                <button
+                  onClick={handleStopGeneration}
+                  disabled={stopping}
+                  className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  title="Stop all generation tasks"
+                >
+                  {stopping ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Stopping...
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"
+                        />
+                      </svg>
+                      Stop
+                    </>
+                  )}
+                </button>
               )}
-            </button>
+              {generatedImages.filter(img => !img.generating).length > 0 && (
+                <button
+                  onClick={handleDownloadAllImages}
+                  disabled={downloadingAll}
+                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                  title="Download all generated images"
+                >
+                  {downloadingAll ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                      Downloading...
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                        />
+                      </svg>
+                      Download All Images
+                    </>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={handleCopyAllPrompts}
+                disabled={copyingPrompts}
+                className="px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                title="Copy all scene prompts to clipboard"
+              >
+                {copyingPrompts ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Copying...
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                    Copy All Prompts
+                  </>
+                )}
+              </button>
+              <button
+                onClick={handleRegenerateAllImages}
+                disabled={regeneratingAll}
+                className="px-3 py-1.5 bg-[#D1FE17] text-black text-xs font-medium rounded-lg hover:bg-[#B8E014] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                title="Regenerate all images for all scenes"
+              >
+                {regeneratingAll ? (
+                  <>
+                    <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                    Regenerating...
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    Regenerate All Images
+                  </>
+                )}
+              </button>
+            </div>
           )}
         </div>
         {isProcessing && result.scenes.length === 0 ? (
@@ -1095,7 +1468,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
               >
                 {/* Image Cover */}
                 <div 
-                  className="relative w-full aspect-[9/16] bg-gray-100 cursor-pointer group"
+                  className={`relative w-full ${isWideAspect ? 'aspect-[16/9]' : 'aspect-[9/16]'} bg-gray-100 cursor-pointer group`}
                   onClick={() => {
                     if (displayImage) {
                       setSelectedImage({ sceneIndex, url: displayImage, generating: false });
@@ -1122,7 +1495,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                       </div>
                     </>
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-gray-800">
+                      <div className="w-full h-full flex items-center justify-center bg-gray-800">
                       <div className="text-center">
                         <div className="w-8 h-8 border-4 border-[#D1FE17] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
                         <p className="text-[10px] text-gray-400">Generating...</p>
@@ -1203,7 +1576,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleRegenerateScene(sceneIndex);
+                            openRegenerateSceneDialog(sceneIndex);
                           }}
                           disabled={regeneratingScenes.has(sceneIndex)}
                           className="p-0.5 text-gray-400 hover:text-[#D1FE17] hover:bg-[#D1FE17]/20 rounded transition-colors"
@@ -1369,7 +1742,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                   {selectedImageIds.size} image{selectedImageIds.size > 1 ? 's' : ''} selected
                 </p>
                 <button
-                  onClick={handleGenerateVideo}
+                  onClick={() => setShowVideoModelDialog(true)}
                   disabled={generatingVideo}
                   className="px-4 py-2 bg-[#D1FE17] text-black font-medium rounded-lg hover:bg-[#B8E014] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                 >
@@ -1396,7 +1769,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                     className="border border-gray-800 rounded-lg overflow-hidden bg-black"
                   >
                     {video.generating ? (
-                      <div className="w-full aspect-[9/16] bg-gray-800 flex items-center justify-center">
+                      <div className={`w-full ${isWideAspect ? 'aspect-[16/9]' : 'aspect-[9/16]'} bg-gray-800 flex items-center justify-center`}>
                         <div className="text-center">
                           <div className="w-8 h-8 border-4 border-[#D1FE17] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
                           <p className="text-xs text-gray-400">Generating video...</p>
@@ -1406,7 +1779,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                       <>
                         <video
                           src={video.url}
-                          className="w-full aspect-[9/16] object-cover"
+                          className={`w-full ${isWideAspect ? 'aspect-[16/9]' : 'aspect-[9/16]'} object-cover`}
                           controls
                         />
                         <div className="p-3">
@@ -1487,6 +1860,133 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
         onClose={() => setSelectedImage(null)}
         onNavigate={setSelectedImage}
       />
+
+      {showVideoModelDialog && (
+        <div className="fixed inset-0 z-[80] bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 w-full max-w-md">
+            <h3 className="text-base font-semibold text-white mb-3">Choose Video Model</h3>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                <input
+                  type="radio"
+                  name="videoModel"
+                  value="seedance-1.5-pro"
+                  checked={selectedVideoModel === 'seedance-1.5-pro'}
+                  onChange={() => setSelectedVideoModel('seedance-1.5-pro')}
+                  className="w-4 h-4 text-[#D1FE17] bg-gray-800 border-gray-600 focus:ring-[#D1FE17]"
+                />
+                Seedance 1.5 Pro
+              </label>
+              <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
+                <input
+                  type="radio"
+                  name="videoModel"
+                  value="veo-3.1"
+                  checked={selectedVideoModel === 'veo-3.1'}
+                  onChange={() => setSelectedVideoModel('veo-3.1')}
+                  className="w-4 h-4 text-[#D1FE17] bg-gray-800 border-gray-600 focus:ring-[#D1FE17]"
+                />
+                Veo 3.1
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowVideoModelDialog(false)}
+                className="px-3 py-1.5 text-sm text-gray-300 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowVideoModelDialog(false);
+                  handleGenerateVideo(selectedVideoModel);
+                }}
+                className="px-4 py-2 bg-[#D1FE17] text-black font-medium rounded-lg hover:bg-[#B8E014] transition-colors"
+              >
+                Generate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRegenerateSceneDialog && (
+        <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 w-full max-w-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-sm font-semibold">Edit Prompt & Regenerate Scene</h3>
+              <button
+                onClick={() => setShowRegenerateSceneDialog(false)}
+                className="text-gray-400 hover:text-white"
+                type="button"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Image Prompt</label>
+                <textarea
+                  value={regeneratePrompt}
+                  onChange={(e) => setRegeneratePrompt(e.target.value)}
+                  className="w-full min-h-[140px] bg-gray-800 text-white text-xs rounded-lg border border-gray-700 p-3 focus:outline-none focus:border-[#D1FE17]"
+                  placeholder="Edit the prompt for this scene..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Reference Images</label>
+                <div className="border border-dashed border-gray-700 rounded-lg p-3 bg-gray-800">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      setRegenerateReferenceFiles(files);
+                    }}
+                    className="text-xs text-gray-300"
+                  />
+                  {regenerateReferenceFiles.length > 0 && (
+                    <div className="mt-2 text-xs text-gray-400">
+                      {regenerateReferenceFiles.map(file => file.name).join(', ')}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Reference Image URLs (optional)</label>
+                <textarea
+                  value={regenerateReferenceUrls}
+                  onChange={(e) => setRegenerateReferenceUrls(e.target.value)}
+                  className="w-full min-h-[70px] bg-gray-800 text-white text-xs rounded-lg border border-gray-700 p-3 focus:outline-none focus:border-[#D1FE17]"
+                  placeholder="Paste URLs separated by commas or new lines"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowRegenerateSceneDialog(false)}
+                className="px-3 py-1.5 text-xs text-gray-300 border border-gray-700 rounded-lg hover:bg-gray-800"
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRegenerateSceneWithEdits}
+                disabled={regeneratingSingleScene}
+                className="px-3 py-1.5 text-xs bg-[#D1FE17] text-black rounded-lg font-semibold disabled:opacity-50"
+                type="button"
+              >
+                {regeneratingSingleScene ? 'Regenerating...' : 'Save & Regenerate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

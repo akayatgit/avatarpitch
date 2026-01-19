@@ -223,6 +223,26 @@ async function saveSceneToDatabase(
  * 1. Generate prompts incrementally (save each scene as it's generated)
  * 2. Start image generation if reference images are provided
  */
+// Helper function to check if generation should be stopped
+async function shouldStopGeneration(projectId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('content_creation_requests')
+      .select('status')
+      .eq('id', projectId)
+      .single();
+
+    if (error || !data) {
+      return false;
+    }
+
+    return data.status === 'cancelled';
+  } catch (error) {
+    console.error('Error checking stop status:', error);
+    return false;
+  }
+}
+
 async function processProjectInBackground(
   projectId: string,
   contentType: any,
@@ -234,6 +254,12 @@ async function processProjectInBackground(
   size: string | null
 ) {
   try {
+    // Check if generation should be stopped before starting
+    if (await shouldStopGeneration(projectId)) {
+      console.log(`[generate-project] Generation stopped before starting for project ${projectId}`);
+      return;
+    }
+
     // Reset global memory for new generation session
     resetGlobalMemory();
 
@@ -270,6 +296,12 @@ async function processProjectInBackground(
     console.log(`[generate-project] Generating ${sceneCount} scenes in parallel for project ${projectId}`);
     
     const scenePromises = scenePurposes.map(async (sceneInfo, idx) => {
+      // Check if generation should be stopped before processing this scene
+      if (await shouldStopGeneration(projectId)) {
+        console.log(`[generate-project] Generation stopped before scene ${idx + 1}/${sceneCount} for project ${projectId}`);
+        return { success: false, error: 'Generation stopped', index: idx };
+      }
+
       try {
         console.log(`[generate-project] Starting scene ${idx + 1}/${sceneCount} for project ${projectId}`);
         
@@ -376,17 +408,21 @@ async function processProjectInBackground(
       throw new Error('First scene generation failed');
     }
 
-    // Step 3: Start image generation if reference images are provided
+    // Step 3: Start image generation if reference images are provided (or if using Flux-Schnell which doesn't need them)
+    const isFluxSchnell = model === 'flux-schnell';
+    const hasRequiredImages = isFluxSchnell || (referenceImageUrls && referenceImageUrls.length > 0);
+    
     console.log(`[generate-project] Checking image generation requirements for project ${projectId}:`, {
       hasReferenceImages: !!referenceImageUrls && referenceImageUrls.length > 0,
       referenceImageCount: referenceImageUrls?.length || 0,
       hasModel: !!model,
+      isFluxSchnell: isFluxSchnell,
       hasNumImages: !!numImages,
       hasAspectRatio: !!aspectRatio,
       hasSize: !!size,
     });
 
-    if (referenceImageUrls && referenceImageUrls.length > 0 && model && numImages && aspectRatio && size) {
+    if (hasRequiredImages && model && numImages && aspectRatio && size) {
       // Use the scenes we just generated
       const scenes = allScenes;
       console.log(`[generate-project] Found ${scenes.length} scenes for project ${projectId}`);
@@ -404,7 +440,10 @@ async function processProjectInBackground(
               ? [referenceImageUrls]
               : [];
 
-          if (imageUrls.length > 0 && model && numImages && aspectRatio && size) {
+          // Flux-Schnell doesn't require reference images, other models do
+          const canGenerate = isFluxSchnell || imageUrls.length > 0;
+          
+          if (canGenerate && model && numImages && aspectRatio && size) {
             // Start background processing (don't await - return immediately)
             processImagesInBackground(
               projectId,
@@ -418,7 +457,7 @@ async function processProjectInBackground(
               console.error(`[generate-project] Background image generation error for project ${projectId}:`, error);
             });
 
-            console.log(`[generate-project] Image generation started for project ${projectId} with ${scenes.length} scenes, ${imageUrls.length} reference images`);
+            console.log(`[generate-project] Image generation started for project ${projectId} with ${scenes.length} scenes, model: ${model}, ${imageUrls.length} reference images`);
           } else {
             console.warn(`[generate-project] Skipping image generation for project ${projectId}: missing required parameters`, {
               hasImages: imageUrls.length > 0,
@@ -436,7 +475,13 @@ async function processProjectInBackground(
         console.warn(`[generate-project] No scenes found for project ${projectId}, skipping image generation`);
       }
     } else {
-      console.log(`[generate-project] Skipping image generation for project ${projectId}: missing reference images or settings`);
+      const missingItems = [];
+      if (!hasRequiredImages && !isFluxSchnell) missingItems.push('reference images');
+      if (!model) missingItems.push('model');
+      if (!numImages) missingItems.push('numImages');
+      if (!aspectRatio) missingItems.push('aspectRatio');
+      if (!size) missingItems.push('size');
+      console.log(`[generate-project] Skipping image generation for project ${projectId}: missing ${missingItems.join(', ')}`);
     }
 
     console.log(`Project ${projectId} generation completed successfully`);

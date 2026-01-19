@@ -1,47 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { put } from '@vercel/blob';
+
+// Configure route to handle larger file uploads
+export const runtime = 'nodejs';
+export const maxDuration = 60; // 60 seconds max duration
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData();
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch (error) {
+      console.error('Failed to parse multipart form data:', error);
+      return NextResponse.json({ error: 'Failed to parse upload payload' }, { status: 400 });
+    }
+
     const file = formData.get('images') as File;
 
-    if (!file) {
+    if (!file || typeof file === 'string') {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    // Create new FormData for Vercel API
-    const vercelFormData = new FormData();
-    vercelFormData.append('images', file);
-
-    // Proxy the upload to Vercel API (server-side, no CORS issues)
-    const response = await fetch('https://v0-vercel-api-image-upload.vercel.app/api/upload', {
-      method: 'POST',
-      body: vercelFormData,
+    const blob = await put(file.name, file, {
+      access: 'public',
+      contentType: file.type || 'application/octet-stream',
+      addRandomSuffix: true,
     });
 
-    if (!response.ok) {
-      throw new Error(`Failed to upload image: ${response.statusText}`);
-    }
-
-    const uploadData = await response.json();
-
-    // Handle different response formats from Vercel upload API
-    let imageUrl: string | null = null;
-    if (Array.isArray(uploadData)) {
-      imageUrl = uploadData[0]?.url || uploadData[0];
-    } else if (uploadData.url) {
-      imageUrl = uploadData.url;
-    } else if (typeof uploadData === 'string') {
-      imageUrl = uploadData;
-    } else if (uploadData.urls && Array.isArray(uploadData.urls)) {
-      imageUrl = uploadData.urls[0]?.url || uploadData.urls[0];
-    }
-
-    if (!imageUrl) {
-      throw new Error('Failed to get image URL from upload service');
-    }
-
-    return NextResponse.json({ url: imageUrl });
+    return NextResponse.json({ url: blob.url });
   } catch (error) {
     console.error('Upload error:', error);
     return NextResponse.json(

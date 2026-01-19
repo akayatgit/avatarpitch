@@ -45,7 +45,8 @@ export async function planScenesDynamically(
   const memory = getGlobalMemory();
 
   // Build dynamic system prompt from contentType
-  const systemPrompt = contentType.prompting?.systemPromptTemplate || '';
+  const rawSystemPrompt = contentType.prompting?.systemPromptTemplate || '';
+  const systemPrompt = rawSystemPrompt.replace(/[{]/g, '{{').replace(/[}]/g, '}}');
 
   // Build dynamic user prompt based on available inputs and scene generation policy
   const inputsText = Object.entries(dynamicInputs)

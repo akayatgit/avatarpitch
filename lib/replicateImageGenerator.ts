@@ -4,7 +4,7 @@ interface ModelConfig {
   processOutput: (output: any) => Promise<Array<{ url: string; file?: any }>>;
 }
 
-type ImageGenerationModel = 'seedream-4.5' | 'nano-banana-pro' | 'nano-banana';
+type ImageGenerationModel = 'flux-schnell' | 'seedream-4.5' | 'nano-banana-pro' | 'nano-banana';
 
 function parsePrompt(prompt?: string): string | object {
   if (!prompt) return '';
@@ -139,6 +139,64 @@ const nanoBananaProConfig: ModelConfig = {
   },
 };
 
+// Flux-Schnell model handler
+const fluxSchnellConfig: ModelConfig = {
+  modelId: 'black-forest-labs/flux-schnell',
+  buildInput: (referenceImageUrls: string[], customPrompt?: string, outfitUrl?: string | null, numImages: number = 1, aspectRatio: string = '9:16', size: string = '4K') => {
+    const prompt = parsePrompt(customPrompt);
+    
+    // Map size to megapixels (1 = 1MP, 4K = higher quality)
+    const megapixels = size === '4K' ? '1' : '1';
+    
+    // Map aspect ratio
+    const aspectRatioMap: Record<string, string> = {
+      '16:9': '16:9',
+      '1:1': '1:1',
+      '9:16': '9:16',
+    };
+    
+    return {
+      prompt: typeof prompt === 'string' ? prompt : JSON.stringify(prompt),
+      go_fast: true,
+      megapixels: megapixels,
+      num_outputs: numImages,
+      aspect_ratio: aspectRatioMap[aspectRatio] || '9:16',
+      output_format: 'webp',
+      output_quality: 80,
+      num_inference_steps: 4,
+    };
+  },
+  processOutput: async (output: any) => {
+    // Flux-Schnell returns an array of file objects
+    const outputArray = Array.isArray(output) ? output : [output];
+    const results: Array<{ url: string; file?: any }> = [];
+
+    for (const outputItem of outputArray) {
+      let outputUrl: string | null = null;
+      let outputFile: any = null;
+
+      if (outputItem && typeof outputItem.url === 'function') {
+        const urlResult = outputItem.url();
+        outputUrl = typeof urlResult === 'string' ? urlResult : String(urlResult);
+        outputFile = outputItem;
+      } else if (typeof outputItem === 'string') {
+        outputUrl = outputItem;
+      } else if (outputItem && typeof outputItem === 'object') {
+        outputFile = outputItem;
+        if (outputItem.url && typeof outputItem.url === 'string') {
+          outputUrl = outputItem.url;
+        }
+      }
+
+      if (outputUrl && typeof outputUrl === 'string') {
+        results.push({ url: outputUrl, file: outputFile });
+      }
+    }
+
+    return results;
+  },
+};
+
 // Nano-banana model handler
 const nanoBananaConfig: ModelConfig = {
   modelId: 'google/nano-banana',
@@ -190,6 +248,7 @@ const nanoBananaConfig: ModelConfig = {
 
 // Model registry
 const modelRegistry: Record<ImageGenerationModel, ModelConfig> = {
+  'flux-schnell': fluxSchnellConfig,
   'seedream-4.5': seedream4Config,
   'nano-banana-pro': nanoBananaProConfig,
   'nano-banana': nanoBananaConfig,

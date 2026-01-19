@@ -48,10 +48,11 @@ export default function CreateProjectForm({ templates, generateProject, preselec
   
   // Image generation settings
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('seedream-4.5');
+  const [selectedModel, setSelectedModel] = useState<string>('flux-schnell');
   const [numImages, setNumImages] = useState<number>(1);
   const [aspectRatio, setAspectRatio] = useState<string>('9:16');
   const [size, setSize] = useState<string>('4K');
+  const [generationMode, setGenerationMode] = useState<'fast' | 'sequential'>('fast');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
 
@@ -304,6 +305,10 @@ export default function CreateProjectForm({ templates, generateProject, preselec
           }
           
           // Start background generation (prompts + images)
+          // Flux-Schnell doesn't require reference images, so always send settings if Flux-Schnell is selected
+          const isFluxSchnell = selectedModel === 'flux-schnell';
+          const shouldSendImageSettings = isFluxSchnell || referenceImageUrls.length > 0;
+          
           try {
             await fetch('/api/generate-project', {
               method: 'POST',
@@ -313,10 +318,10 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                 contentTypeId: selectedTemplateId,
                 inputs: formInputs,
                 referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : null,
-                model: referenceImageUrls.length > 0 ? selectedModel : null,
-                numImages: referenceImageUrls.length > 0 ? numImages : null,
-                aspectRatio: referenceImageUrls.length > 0 ? aspectRatio : null,
-                size: referenceImageUrls.length > 0 ? size : null,
+                model: shouldSendImageSettings ? selectedModel : null,
+                numImages: shouldSendImageSettings ? numImages : null,
+                aspectRatio: shouldSendImageSettings ? aspectRatio : null,
+                size: shouldSendImageSettings ? size : null,
               }),
             });
           } catch (error) {
@@ -369,7 +374,7 @@ export default function CreateProjectForm({ templates, generateProject, preselec
           
           // Auto-start image generation if reference images are provided
           if (referenceImages.length > 0 && response.data.projectId) {
-            startImageGeneration(response.data, referenceImages, selectedModel, numImages, aspectRatio, size);
+            startImageGeneration(response.data, referenceImages, selectedModel, numImages, aspectRatio, size, generationMode);
           }
         }
       } else {
@@ -409,7 +414,8 @@ export default function CreateProjectForm({ templates, generateProject, preselec
     model: string,
     numImages: number,
     aspectRatio: string,
-    size: string
+    size: string,
+    mode: 'fast' | 'sequential'
   ) => {
     try {
       // Upload reference images
@@ -429,6 +435,7 @@ export default function CreateProjectForm({ templates, generateProject, preselec
           numImages,
           aspectRatio,
           size,
+          generationMode: mode,
         }),
       });
 
@@ -460,10 +467,11 @@ export default function CreateProjectForm({ templates, generateProject, preselec
     setFormInputs({});
     setSelectedTemplateId('');
     setReferenceImages([]);
-    setSelectedModel('seedream-4.5');
+    setSelectedModel('flux-schnell');
     setNumImages(1);
     setAspectRatio('9:16');
     setSize('4K');
+    setGenerationMode('fast');
     const form = document.getElementById('project-form') as HTMLFormElement;
     if (form) form.reset();
   };
@@ -521,56 +529,42 @@ export default function CreateProjectForm({ templates, generateProject, preselec
             <div className="border-t border-gray-800 pt-5 mt-5">
               <h3 className="text-base font-semibold text-white mb-4">Image Generation Settings</h3>
               
-              {/* Reference Images Upload */}
+              {/* Generation Mode Selection */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-white mb-2">
-                  Reference Images
+                  Generation Mode
                 </label>
-                <p className="text-xs text-gray-400 mb-2">
-                  Images will be automatically generated after scenes are created if reference images are provided.
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="generationMode"
+                      value="fast"
+                      checked={generationMode === 'fast'}
+                      onChange={(e) => setGenerationMode(e.target.value as 'fast' | 'sequential')}
+                      className="w-4 h-4 text-[#D1FE17] bg-gray-800 border-gray-600 focus:ring-[#D1FE17]"
+                    />
+                    <span className="text-sm text-white">Generate all images (faster)</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="generationMode"
+                      value="sequential"
+                      checked={generationMode === 'sequential'}
+                      onChange={(e) => setGenerationMode(e.target.value as 'fast' | 'sequential')}
+                      className="w-4 h-4 text-[#D1FE17] bg-gray-800 border-gray-600 focus:ring-[#D1FE17]"
+                    />
+                    <span className="text-sm text-white">Sequential (consistent)</span>
+                  </label>
+                </div>
+                <p className="mt-1 text-xs text-gray-400">
+                  {generationMode === 'fast' 
+                    ? 'All images will be generated in parallel for faster completion.'
+                    : 'Images will be generated one by one, with each scene using the previous scene\'s output as a reference for consistency.'}
                 </p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full px-4 py-3 border-2 border-dashed border-gray-700 rounded-xl hover:border-[#D1FE17] transition-colors duration-200 text-gray-400"
-                >
-                  <div className="flex flex-col items-center">
-                    <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                    <span>Click to upload reference images</span>
-                  </div>
-                </button>
-                {referenceImages.length > 0 && (
-                  <div className="mt-3 grid grid-cols-3 gap-2">
-                    {referenceImages.map((file, index) => (
-                      <div key={index} className="relative group">
-                        <img
-                          src={URL.createObjectURL(file)}
-                          alt={`Reference ${index + 1}`}
-                          className="w-full h-24 object-cover rounded-lg"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => removeImage(index)}
-                          className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
-
+              
               {/* Model Selection */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-white mb-2">
@@ -578,14 +572,78 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                 </label>
                 <select
                   value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedModel(e.target.value);
+                    // Clear reference images when switching to Flux-Schnell
+                    if (e.target.value === 'flux-schnell') {
+                      setReferenceImages([]);
+                    }
+                  }}
                   className="input-field"
                 >
+                  <option value="flux-schnell">Flux Schnell</option>
                   <option value="seedream-4.5">Seedream 4.5</option>
                   <option value="nano-banana-pro">Nano Banana Pro</option>
                   <option value="nano-banana">Nano Banana</option>
                 </select>
+                {selectedModel === 'flux-schnell' && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    Flux Schnell doesn't require reference images - it generates images from text prompts only.
+                  </p>
+                )}
               </div>
+
+              {/* Reference Images Upload - Hidden for Flux-Schnell */}
+              {selectedModel !== 'flux-schnell' && (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-white mb-2">
+                    Reference Images
+                  </label>
+                  <p className="text-xs text-gray-400 mb-2">
+                    Images will be automatically generated after scenes are created if reference images are provided.
+                  </p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full px-4 py-3 border-2 border-dashed border-gray-700 rounded-xl hover:border-[#D1FE17] transition-colors duration-200 text-gray-400"
+                  >
+                    <div className="flex flex-col items-center">
+                      <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      <span>Click to upload reference images</span>
+                    </div>
+                  </button>
+                  {referenceImages.length > 0 && (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {referenceImages.map((file, index) => (
+                        <div key={index} className="relative group">
+                          <img
+                            src={URL.createObjectURL(file)}
+                            alt={`Reference ${index + 1}`}
+                            className="w-full h-24 object-cover rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeImage(index)}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Number of Images */}
               <div className="mb-4">
