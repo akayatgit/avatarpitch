@@ -72,6 +72,8 @@ export async function GET(
         scenes: scenes,
         status: request.status || 'pending',
         imageGenerationSettings: generatedOutput.imageGenerationSettings || null,
+        assetRequirements: generatedOutput.assetRequirements || null,
+        assetUploads: generatedOutput.assetUploads || null,
       },
       {
         headers: {

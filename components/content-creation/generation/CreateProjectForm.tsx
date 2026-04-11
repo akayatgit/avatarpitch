@@ -47,13 +47,11 @@ export default function CreateProjectForm({ templates, generateProject, preselec
   const simulationRef = useRef<{ stop: boolean; actualSceneCount: number | null }>({ stop: false, actualSceneCount: null });
   
   // Image generation settings
-  const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('flux-schnell');
   const [numImages, setNumImages] = useState<number>(1);
   const [aspectRatio, setAspectRatio] = useState<string>('9:16');
   const [size, setSize] = useState<string>('4K');
   const [generationMode, setGenerationMode] = useState<'fast' | 'sequential'>('fast');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
 
   // Fetch content type when template is selected
@@ -292,23 +290,6 @@ export default function CreateProjectForm({ templates, generateProject, preselec
         
         // If status is 'pending' or 'processing', start background generation
         if ((response.data.status === 'pending' || response.data.status === 'processing') && projectId) {
-          // Upload reference images first if provided
-          let referenceImageUrls: string[] = [];
-          if (referenceImages.length > 0) {
-            try {
-              referenceImageUrls = await Promise.all(
-                referenceImages.map(file => uploadImageToServer(file))
-              );
-            } catch (error) {
-              console.error('Error uploading reference images:', error);
-            }
-          }
-          
-          // Start background generation (prompts + images)
-          // Flux-Schnell doesn't require reference images, so always send settings if Flux-Schnell is selected
-          const isFluxSchnell = selectedModel === 'flux-schnell';
-          const shouldSendImageSettings = isFluxSchnell || referenceImageUrls.length > 0;
-          
           try {
             await fetch('/api/generate-project', {
               method: 'POST',
@@ -317,11 +298,11 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                 projectId,
                 contentTypeId: selectedTemplateId,
                 inputs: formInputs,
-                referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : null,
-                model: shouldSendImageSettings ? selectedModel : null,
-                numImages: shouldSendImageSettings ? numImages : null,
-                aspectRatio: shouldSendImageSettings ? aspectRatio : null,
-                size: shouldSendImageSettings ? size : null,
+                model: selectedModel,
+                numImages,
+                aspectRatio,
+                size,
+                generationMode,
               }),
             });
           } catch (error) {
@@ -372,10 +353,6 @@ export default function CreateProjectForm({ templates, generateProject, preselec
           setResult(response.data);
           setShowProgressDialog(false);
           
-          // Auto-start image generation if reference images are provided
-          if (referenceImages.length > 0 && response.data.projectId) {
-            startImageGeneration(response.data, referenceImages, selectedModel, numImages, aspectRatio, size, generationMode);
-          }
         }
       } else {
         setError('Unexpected response format');
@@ -391,82 +368,11 @@ export default function CreateProjectForm({ templates, generateProject, preselec
     }
   };
   
-  const uploadImageToServer = async (file: File): Promise<string> => {
-    const formData = new FormData();
-    formData.append('images', file);
-    
-    const response = await fetch('/api/upload-image', {
-      method: 'POST',
-      body: formData,
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to upload image: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    return data.url;
-  };
-  
-  const startImageGeneration = async (
-    projectData: any,
-    referenceImages: File[],
-    model: string,
-    numImages: number,
-    aspectRatio: string,
-    size: string,
-    mode: 'fast' | 'sequential'
-  ) => {
-    try {
-      // Upload reference images
-      const referenceImageUrls = await Promise.all(
-        referenceImages.map(file => uploadImageToServer(file))
-      );
-
-      // Start background image generation
-      const response = await fetch('/api/generate-all-images', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: projectData.projectId,
-          scenes: projectData.scenes,
-          referenceImageUrls: referenceImageUrls,
-          model,
-          numImages,
-          aspectRatio,
-          size,
-          generationMode: mode,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Failed to start image generation:', errorData.error);
-        // Don't show alert - just log the error
-      }
-    } catch (error) {
-      console.error('Error starting image generation:', error);
-      // Don't show alert - just log the error
-    }
-  };
-  
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files);
-      setReferenceImages(prev => [...prev, ...files]);
-    }
-  };
-
-  const removeImage = (index: number) => {
-    setReferenceImages(prev => prev.filter((_, i) => i !== index));
-  };
-
   const handleStartNew = () => {
     setResult(null);
     setError(null);
     setFormInputs({});
     setSelectedTemplateId('');
-    setReferenceImages([]);
     setSelectedModel('flux-schnell');
     setNumImages(1);
     setAspectRatio('9:16');
@@ -558,11 +464,11 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                     <span className="text-sm text-white">Sequential (consistent)</span>
                   </label>
                 </div>
-                <p className="mt-1 text-xs text-gray-400">
-                  {generationMode === 'fast' 
-                    ? 'All images will be generated in parallel for faster completion.'
-                    : 'Images will be generated one by one, with each scene using the previous scene\'s output as a reference for consistency.'}
-                </p>
+                  <p className="mt-1 text-xs text-gray-400">
+                    {generationMode === 'fast' 
+                      ? 'All images will be generated in parallel for faster completion.'
+                      : 'Images will be generated one by one for maximum stability and consistent style.'}
+                  </p>
               </div>
               
               {/* Model Selection */}
@@ -574,10 +480,6 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                   value={selectedModel}
                   onChange={(e) => {
                     setSelectedModel(e.target.value);
-                    // Clear reference images when switching to Flux-Schnell
-                    if (e.target.value === 'flux-schnell') {
-                      setReferenceImages([]);
-                    }
                   }}
                   className="input-field"
                 >
@@ -588,62 +490,10 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                 </select>
                 {selectedModel === 'flux-schnell' && (
                   <p className="mt-1 text-xs text-gray-400">
-                    Flux Schnell doesn't require reference images - it generates images from text prompts only.
+                    Flux Schnell can generate images from prompts without reference images.
                   </p>
                 )}
               </div>
-
-              {/* Reference Images Upload - Hidden for Flux-Schnell */}
-              {selectedModel !== 'flux-schnell' && (
-                <div className="mb-4">
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Reference Images
-                  </label>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Images will be automatically generated after scenes are created if reference images are provided.
-                  </p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full px-4 py-3 border-2 border-dashed border-gray-700 rounded-xl hover:border-[#D1FE17] transition-colors duration-200 text-gray-400"
-                  >
-                    <div className="flex flex-col items-center">
-                      <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                      </svg>
-                      <span>Click to upload reference images</span>
-                    </div>
-                  </button>
-                  {referenceImages.length > 0 && (
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      {referenceImages.map((file, index) => (
-                        <div key={index} className="relative group">
-                          <img
-                            src={URL.createObjectURL(file)}
-                            alt={`Reference ${index + 1}`}
-                            className="w-full h-24 object-cover rounded-lg"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeImage(index)}
-                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
 
               {/* Number of Images */}
               <div className="mb-4">

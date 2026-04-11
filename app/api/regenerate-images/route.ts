@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
       sceneIndex, // Optional: if provided, regenerate only this scene
       updatedImagePrompt,
       referenceImageUrls,
+      sceneReferenceImageUrls,
       model,
       numImages,
       aspectRatio,
@@ -119,14 +120,15 @@ export async function POST(request: NextRequest) {
         ? [referenceImageUrls]
         : [];
 
-    // Flux-Schnell doesn't require reference images
+    const getReferencesForScene = (sceneIdx: number): string[] => {
+      if (sceneReferenceImageUrls && typeof sceneReferenceImageUrls === 'object') {
+        return sceneReferenceImageUrls[String(sceneIdx)] || [];
+      }
+      return imageUrls;
+    };
+
+    // Allow empty reference images; models may fall back to prompt-only generation.
     const selectedModel = model || 'flux-schnell';
-    if (selectedModel !== 'flux-schnell' && imageUrls.length === 0) {
-      return NextResponse.json(
-        { error: 'At least one reference image URL is required' },
-        { status: 400 }
-      );
-    }
 
     // Start background processing (don't await - return immediately)
     processImagesInBackground(
@@ -139,6 +141,7 @@ export async function POST(request: NextRequest) {
         return currentSceneIndex === sceneIndex ? { ...scene, imagePrompt: updatedImagePrompt } : scene;
       }),
       imageUrls,
+      sceneReferenceImageUrls || null,
       model || 'flux-schnell',
       numImages || 1,
       aspectRatio || '9:16',

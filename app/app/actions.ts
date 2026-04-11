@@ -123,7 +123,7 @@ export async function bootstrap() {
 
     // Check for network errors first
     if (contentTypesError && isSupabaseNetworkError(contentTypesError)) {
-      throw new Error('NETWORK_ERROR: No internet connection. Please check your network and try again.');
+      throw new Error('NETWORK_ERROR: Unable to connect to the database. Please check your internet connection and try again.');
     }
 
     if (contentTypesError) {
@@ -145,7 +145,7 @@ export async function bootstrap() {
     
     // Check if it's a network error
     if (isSupabaseNetworkError(error)) {
-      throw new Error('NETWORK_ERROR: No internet connection. Please check your network and try again.');
+      throw new Error('NETWORK_ERROR: Unable to connect to the database. Please check your internet connection and try again.');
     }
     
     // Re-throw other errors as-is

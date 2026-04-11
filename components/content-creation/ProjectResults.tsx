@@ -87,6 +87,8 @@ interface ProjectResultsProps {
     projectId?: string; // Project ID for saving images
     requestId?: string; // Content creation request ID
     status?: 'processing' | 'completed' | 'failed'; // Project status
+    assetRequirements?: AssetRequirements | null;
+    assetUploads?: Record<string, string> | null;
   };
   onStartNew: () => void;
 }
@@ -106,9 +108,27 @@ interface GeneratedVideo {
   createdAt: Date;
 }
 
+interface AssetRequirement {
+  id: string;
+  type: 'cast' | 'object' | 'environment';
+  label: string;
+  sceneIndices: number[];
+}
+
+interface SceneAssetRequirements {
+  sceneIndex: number;
+  assetIds: string[];
+}
+
+interface AssetRequirements {
+  assets: AssetRequirement[];
+  scenes: SceneAssetRequirements[];
+}
+
 export default function ProjectResults({ result: initialResult, onStartNew }: ProjectResultsProps) {
   const [downloading, setDownloading] = useState(false);
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [downloadingAllVideos, setDownloadingAllVideos] = useState(false);
   const [copyingPrompts, setCopyingPrompts] = useState(false);
   const [selectedScene, setSelectedScene] = useState<number | null>(null);
   const [expandedScenes, setExpandedScenes] = useState<Set<number>>(new Set());
@@ -118,10 +138,12 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [selectedImage, setSelectedImage] = useState<GeneratedImage | null>(null);
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
+  const [selectedImagePairIds, setSelectedImagePairIds] = useState<Set<string>>(new Set());
   const [generatedVideos, setGeneratedVideos] = useState<GeneratedVideo[]>([]);
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [showVideoModelDialog, setShowVideoModelDialog] = useState(false);
-  const [selectedVideoModel, setSelectedVideoModel] = useState<'seedance-1.5-pro' | 'veo-3.1'>('seedance-1.5-pro');
+  const [selectedVideoModel, setSelectedVideoModel] = useState<'seedance-1-pro-fast' | 'veo-3.1'>('seedance-1-pro-fast');
+  const [videoCameraFixed, setVideoCameraFixed] = useState(true);
   const [regeneratingAll, setRegeneratingAll] = useState(false);
   const [regeneratingScenes, setRegeneratingScenes] = useState<Set<number>>(new Set());
   const [showRegenerateSceneDialog, setShowRegenerateSceneDialog] = useState(false);
@@ -129,14 +151,28 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   const [regeneratePrompt, setRegeneratePrompt] = useState('');
   const [regenerateReferenceUrls, setRegenerateReferenceUrls] = useState('');
   const [regenerateReferenceFiles, setRegenerateReferenceFiles] = useState<File[]>([]);
+  const [showEditVideoPromptDialog, setShowEditVideoPromptDialog] = useState(false);
+  const [editVideoPrompt, setEditVideoPrompt] = useState('');
+  const [editVideoImage, setEditVideoImage] = useState<GeneratedImage | null>(null);
   const [regeneratingSingleScene, setRegeneratingSingleScene] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [assetRequirements, setAssetRequirements] = useState<AssetRequirements | null>(
+    initialResult.assetRequirements || null
+  );
+  const [assetUploads, setAssetUploads] = useState<Record<string, string>>(
+    initialResult.assetUploads || {}
+  );
+  const [uploadingAssets, setUploadingAssets] = useState<Set<string>>(new Set());
+  const [startingAssetGeneration, setStartingAssetGeneration] = useState(false);
   const activeRequestsRef = useRef<Map<string, AbortController>>(new Map());
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const IGNORED_ASSET = '__ignored__';
   
   // Update result when initialResult changes
   useEffect(() => {
     setResult(initialResult);
+    setAssetRequirements(initialResult.assetRequirements || null);
+    setAssetUploads(initialResult.assetUploads || {});
   }, [initialResult]);
 
   // Load existing images from scene.imageUrls when component mounts or result changes
@@ -196,6 +232,14 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
             // Update image generation settings if available
             if (data.imageGenerationSettings && !imageGenerationSettings) {
               setImageGenerationSettings(data.imageGenerationSettings);
+            }
+
+            if (data.assetRequirements) {
+              setAssetRequirements(data.assetRequirements);
+            }
+
+            if (data.assetUploads) {
+              setAssetUploads(data.assetUploads);
             }
             
             // Update scenes if we have any
@@ -448,9 +492,135 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
       }
       return newSet;
     });
+
+    if (!selected) {
+      setSelectedImagePairIds(prev => {
+        const next = new Set(prev);
+        for (const pairId of next) {
+          if (pairId.startsWith(`${imageId}::`) || pairId.endsWith(`::${imageId}`)) {
+            next.delete(pairId);
+          }
+        }
+        return next;
+      });
+    }
+  };
+
+  const getPairId = (firstId: string, secondId: string): string => {
+    return `${firstId}::${secondId}`;
+  };
+
+  const handleImagePairSelect = (pairId: string, selected: boolean) => {
+    setSelectedImagePairIds(prev => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(pairId);
+      } else {
+        next.delete(pairId);
+      }
+      return next;
+    });
+  };
+
+  const openEditVideoPromptDialog = () => {
+    if (selectedImageIds.size !== 1) {
+      alert('Please select exactly one image to edit and generate a video.');
+      return;
+    }
+
+    const selectedEntry = generatedImages
+      .map((img, idx) => ({ img, id: getImageId(img, idx) }))
+      .find(({ id, img }) => selectedImageIds.has(id) && !img.generating);
+
+    if (!selectedEntry) {
+      alert('Please select a valid image.');
+      return;
+    }
+
+    const sceneForImage = result.scenes.find((scene, idx) => {
+      const sceneIndex = scene.index ?? (idx + 1);
+      return sceneIndex === selectedEntry.img.sceneIndex;
+    });
+    const timelinePrompt = sceneForImage ? extractTimelineFromPrompt(sceneForImage.imagePrompt) : null;
+    const sourcePrompt = timelinePrompt || (sceneForImage
+      ? buildComprehensiveScenePrompt(sceneForImage, result.scenes)
+      : '');
+
+    setEditVideoPrompt(sourcePrompt || '');
+    setEditVideoImage(selectedEntry.img);
+    setShowEditVideoPromptDialog(true);
+  };
+
+  const handleGenerateSingleVideo = async () => {
+    if (!editVideoImage) return;
+    setGeneratingVideo(true);
+    setShowEditVideoPromptDialog(false);
+
+    const videoId = `video-${Date.now()}-single`;
+    const newVideo: GeneratedVideo = {
+      id: videoId,
+      url: '',
+      imageUrls: [editVideoImage.url],
+      generating: true,
+      createdAt: new Date(),
+    };
+    setGeneratedVideos(prev => [...prev, newVideo]);
+
+    try {
+      const sceneForImage = result.scenes.find((scene, idx) => {
+        const sceneIndex = scene.index ?? (idx + 1);
+        return sceneIndex === editVideoImage.sceneIndex;
+      });
+      const timelinePrompt = sceneForImage ? extractTimelineFromPrompt(sceneForImage.imagePrompt) : null;
+      const sourcePrompt = timelinePrompt || (sceneForImage
+        ? buildComprehensiveScenePrompt(sceneForImage, result.scenes)
+        : undefined);
+      const aspectRatio = getImageGenerationSettings().aspectRatio;
+      const trimmedPrompt = editVideoPrompt.trim();
+
+      const response = await fetch('/api/generate-video', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          imageUrls: [editVideoImage.url],
+          prompt: trimmedPrompt.length > 0 ? trimmedPrompt : undefined,
+          sourcePrompt: trimmedPrompt.length === 0 ? sourcePrompt : undefined,
+          model: selectedVideoModel,
+          aspectRatio,
+          cameraFixed: videoCameraFixed,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate video');
+      }
+
+      const data = await response.json();
+      setGeneratedVideos(prev => prev.map(video =>
+        video.id === videoId
+          ? { ...video, url: data.videoUrl, generating: false }
+          : video
+      ));
+    } catch (error) {
+      console.error('Error generating video:', error);
+      setGeneratedVideos(prev => prev.filter(video => video.id !== videoId));
+      alert(error instanceof Error ? error.message : 'Failed to generate video');
+    } finally {
+      setGeneratingVideo(false);
+      setEditVideoImage(null);
+    }
   };
 
   const getSceneIndexValue = (scene: any, idx: number) => scene.index ?? (idx + 1);
+
+  const getAssetTypeLabel = (type: AssetRequirement['type']) => {
+    if (type === 'cast') return 'Cast';
+    if (type === 'object') return 'Object';
+    return 'Environment';
+  };
 
   const getSceneCoverImageUrl = (sceneIndex: number): string | null => {
     const generated = generatedImages.find(img => img.sceneIndex === sceneIndex && !img.generating);
@@ -467,7 +637,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     });
   };
 
-  const handleGenerateVideo = async (videoModel: 'seedance-1.5-pro' | 'veo-3.1') => {
+  const handleGenerateVideo = async (videoModel: 'seedance-1-pro-fast' | 'veo-3.1') => {
     if (selectedImageIds.size === 0) return;
 
     setGeneratingVideo(true);
@@ -475,14 +645,22 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     try {
       // Get the selected images - need to match IDs using the same format as ImageCarousel
       // We need to use the original indices from generatedImages array
-      const selectedImages = generatedImages
+      const selectedImagesWithIds = generatedImages
         .map((img, originalIdx) => ({
           image: img,
           originalIdx,
           imageId: getImageId(img, originalIdx),
         }))
-        .filter(({ imageId, image }) => selectedImageIds.has(imageId) && !image.generating)
-        .map(({ image }) => image);
+        .filter(({ imageId, image }) => selectedImageIds.has(imageId) && !image.generating);
+
+      const orderedSelectedWithIds = selectedImagesWithIds.sort((a, b) => {
+        if (a.image.sceneIndex !== b.image.sceneIndex) {
+          return a.image.sceneIndex - b.image.sceneIndex;
+        }
+        return (a.image.imageIndex ?? 0) - (b.image.imageIndex ?? 0);
+      });
+
+      const selectedImages = orderedSelectedWithIds.map(({ image }) => image);
 
       if (selectedImages.length === 0) {
         alert('Please select at least one valid image');
@@ -514,11 +692,16 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
             const sceneIndex = scene.index ?? (idx + 1);
             return sceneIndex === image.sceneIndex;
           });
-          const sourcePrompt = sceneForImage
+          const timelinePrompt = sceneForImage ? extractTimelineFromPrompt(sceneForImage.imagePrompt) : null;
+          const sourcePrompt = timelinePrompt || (sceneForImage
             ? buildComprehensiveScenePrompt(sceneForImage, result.scenes)
-            : undefined;
+            : undefined);
           const nextSelectedImage = orderedSelectedImages[index + 1];
-          const lastFrameImage = nextSelectedImage?.url ?? null;
+          const currentImageId = orderedSelectedWithIds[index]?.imageId;
+          const nextImageId = orderedSelectedWithIds[index + 1]?.imageId;
+          const pairId = currentImageId && nextImageId ? getPairId(currentImageId, nextImageId) : null;
+          const useLastFrame = pairId ? selectedImagePairIds.has(pairId) : false;
+          const lastFrameImage = useLastFrame ? nextSelectedImage?.url ?? null : null;
           const aspectRatio = getImageGenerationSettings().aspectRatio;
 
           // Call the API to generate video for this image
@@ -533,6 +716,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
               lastFrameImage: lastFrameImage || undefined,
               model: videoModel,
               aspectRatio,
+              cameraFixed: videoCameraFixed,
             }),
           });
 
@@ -581,6 +765,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
       // Clear selected images after generation completes
       setSelectedImageIds(new Set());
+      setSelectedImagePairIds(new Set());
     } catch (error) {
       console.error('Error in video generation:', error);
       alert(error instanceof Error ? error.message : 'Failed to generate videos');
@@ -609,6 +794,50 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     }
   };
 
+  const handleDownloadAllVideos = async () => {
+    const videosToDownload = generatedVideos.filter(video => !video.generating && video.url);
+
+    if (videosToDownload.length === 0) {
+      alert('No videos available to download');
+      return;
+    }
+
+    setDownloadingAllVideos(true);
+
+    try {
+      for (let i = 0; i < videosToDownload.length; i++) {
+        const video = videosToDownload[i];
+        try {
+          const response = await fetch(video.url);
+          const blob = await response.blob();
+          const urlParts = video.url.split('.');
+          const extension = urlParts.length > 1 ? urlParts[urlParts.length - 1].split('?')[0] : 'mp4';
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `video-${i + 1}.${extension}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          if (i < videosToDownload.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        } catch (error) {
+          console.error(`Error downloading video ${i + 1}:`, error);
+        }
+      }
+
+      alert(`Successfully downloaded ${videosToDownload.length} video(s)`);
+    } catch (error) {
+      console.error('Error downloading videos:', error);
+      alert('Failed to download some videos. Please try again.');
+    } finally {
+      setDownloadingAllVideos(false);
+    }
+  };
+
   // Extract image generation settings from project data or use defaults
   const [imageGenerationSettings, setImageGenerationSettings] = useState<{
     referenceImageUrls: string[];
@@ -616,6 +845,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     numImages: number;
     aspectRatio: string;
     size: string;
+    generationMode?: 'fast' | 'sequential';
   } | null>(null);
 
   // Fetch image generation settings from project API
@@ -626,6 +856,12 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
         .then(data => {
           if (data.imageGenerationSettings) {
             setImageGenerationSettings(data.imageGenerationSettings);
+          }
+          if (data.assetRequirements) {
+            setAssetRequirements(data.assetRequirements);
+          }
+          if (data.assetUploads) {
+            setAssetUploads(data.assetUploads);
           }
         })
         .catch(err => {
@@ -647,6 +883,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
       numImages: 1,
       aspectRatio: '9:16',
       size: '4K',
+      generationMode: 'fast',
     };
   };
 
@@ -665,6 +902,125 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
     const data = await response.json();
     return data.url;
+  };
+
+  const buildSceneReferenceMap = (): Record<string, string[]> => {
+    if (!assetRequirements) return {};
+    const map: Record<string, string[]> = {};
+    assetRequirements.scenes.forEach((scene) => {
+      const urls = scene.assetIds
+        .map((assetId) => assetUploads[assetId])
+        .filter(Boolean);
+      const filteredUrls = urls.filter((url) => url !== IGNORED_ASSET);
+      map[String(scene.sceneIndex)] = Array.from(new Set(filteredUrls));
+    });
+    return map;
+  };
+
+  const getMissingAssets = (): AssetRequirement[] => {
+    if (!assetRequirements) return [];
+    return assetRequirements.assets.filter((asset) => {
+      const uploadValue = assetUploads[asset.id];
+      return !uploadValue;
+    });
+  };
+
+  const handleAssetUpload = async (assetId: string, file: File) => {
+    if (!result.projectId) return;
+    setUploadingAssets(prev => new Set(prev).add(assetId));
+    try {
+      const url = await uploadImageToServer(file);
+      const updatedUploads = { ...assetUploads, [assetId]: url };
+      setAssetUploads(updatedUploads);
+
+      const response = await fetch('/api/project-assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: result.projectId,
+          assetUploads: { [assetId]: url },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to save asset upload');
+      }
+    } catch (error) {
+      console.error('Error uploading asset image:', error);
+      alert(error instanceof Error ? error.message : 'Failed to upload asset image');
+    } finally {
+      setUploadingAssets(prev => {
+        const next = new Set(prev);
+        next.delete(assetId);
+        return next;
+      });
+    }
+  };
+
+  const handleAssetIgnore = async (assetId: string, ignored: boolean) => {
+    if (!result.projectId) return;
+    const value = ignored ? IGNORED_ASSET : '';
+    const updatedUploads = { ...assetUploads, [assetId]: value };
+    setAssetUploads(updatedUploads);
+
+    try {
+      const response = await fetch('/api/project-assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: result.projectId,
+          assetUploads: { [assetId]: value },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update asset');
+      }
+    } catch (error) {
+      console.error('Error updating asset ignore state:', error);
+      alert(error instanceof Error ? error.message : 'Failed to update asset');
+    }
+  };
+
+  const handleIgnoreAllAssets = async () => {
+    if (!result.projectId || !assetRequirements) return;
+    
+    const missingAssets = getMissingAssets();
+    if (missingAssets.length === 0) {
+      return;
+    }
+
+    // Update all missing assets to ignored
+    const updates: Record<string, string> = {};
+    missingAssets.forEach(asset => {
+      updates[asset.id] = IGNORED_ASSET;
+    });
+
+    const updatedUploads = { ...assetUploads, ...updates };
+    setAssetUploads(updatedUploads);
+
+    try {
+      const response = await fetch('/api/project-assets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: result.projectId,
+          assetUploads: updates,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to ignore all assets');
+      }
+    } catch (error) {
+      console.error('Error ignoring all assets:', error);
+      // Revert on error
+      setAssetUploads(assetUploads);
+      alert(error instanceof Error ? error.message : 'Failed to ignore all assets');
+    }
   };
 
   const handleStopGeneration = async () => {
@@ -716,6 +1072,52 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     }
   };
 
+  const handleStartImageGenerationFromAssets = async () => {
+    if (!result.projectId) {
+      alert('Project ID is required');
+      return;
+    }
+
+    if (!assetRequirements || assetRequirements.assets.length === 0) {
+      alert('No asset requirements found for this project');
+      return;
+    }
+
+    setStartingAssetGeneration(true);
+    try {
+      const settings = getImageGenerationSettings();
+      const sceneReferenceImageUrls = buildSceneReferenceMap();
+
+      const response = await fetch('/api/generate-all-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: result.projectId,
+          scenes: result.scenes,
+          sceneReferenceImageUrls,
+          model: settings.model,
+          numImages: settings.numImages,
+          aspectRatio: settings.aspectRatio,
+          size: settings.size,
+          generationMode: settings.generationMode || 'fast',
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to start image generation');
+      }
+
+      setGeneratedImages([]);
+      setBackgroundGenerationStarted(true);
+    } catch (error) {
+      console.error('Error starting image generation:', error);
+      alert(error instanceof Error ? error.message : 'Failed to start image generation');
+    } finally {
+      setStartingAssetGeneration(false);
+    }
+  };
+
   const handleRegenerateAllImages = async () => {
     if (!result.projectId) {
       alert('Project ID is required for regeneration');
@@ -723,21 +1125,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     }
 
     const settings = getImageGenerationSettings();
-    
-    // Check if we have reference image URLs - if not, prompt the user
-    if (!settings.referenceImageUrls || settings.referenceImageUrls.length === 0) {
-      const userInput = prompt(
-        'Reference image URLs are required for regeneration.\n\n' +
-        'Please provide reference image URLs (comma-separated):'
-      );
-      
-      if (!userInput || userInput.trim() === '') {
-        alert('Reference image URLs are required for regeneration');
-        return;
-      }
-      
-      settings.referenceImageUrls = userInput.split(',').map(url => url.trim()).filter(Boolean);
-    }
+    const sceneReferenceImageUrls = buildSceneReferenceMap();
 
     setRegeneratingAll(true);
 
@@ -750,6 +1138,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
         body: JSON.stringify({
           projectId: result.projectId,
           ...settings,
+          sceneReferenceImageUrls,
         }),
       });
 
@@ -783,25 +1172,13 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     }
 
     const settings = getImageGenerationSettings();
-    
-    if (options?.referenceImageUrls && options.referenceImageUrls.length > 0) {
-      settings.referenceImageUrls = options.referenceImageUrls;
-    }
+    const sceneReferenceImageUrls = buildSceneReferenceMap();
+    const baseReferences = sceneReferenceImageUrls[String(sceneIndex)] || [];
+    const extraReferences = options?.referenceImageUrls || [];
+    const mergedReferences = Array.from(new Set([...baseReferences, ...extraReferences]));
+    sceneReferenceImageUrls[String(sceneIndex)] = mergedReferences;
 
-    // Check if we have reference image URLs
-    if (!settings.referenceImageUrls || settings.referenceImageUrls.length === 0) {
-      const userInput = prompt(
-        'Reference image URLs are required for regeneration.\n\n' +
-        'Please provide reference image URLs (comma-separated):'
-      );
-      
-      if (!userInput || userInput.trim() === '') {
-        alert('Reference image URLs are required for regeneration');
-        return;
-      }
-      
-      settings.referenceImageUrls = userInput.split(',').map(url => url.trim()).filter(Boolean);
-    }
+    // Allow regeneration even without reference assets; the model may fall back to text-only.
 
     setRegeneratingScenes(prev => new Set(prev).add(sceneIndex));
 
@@ -815,6 +1192,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
           projectId: result.projectId,
           sceneIndex,
           ...settings,
+          sceneReferenceImageUrls,
           updatedImagePrompt: options?.updatedImagePrompt,
         }),
       });
@@ -1243,10 +1621,19 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     return parts.join('\n\n');
   };
 
+  const extractTimelineFromPrompt = (text: string | undefined): string | null => {
+    if (!text) return null;
+    const match = text.match(/(?:^|\n)\s*0\.0s\s*-\s[\s\S]*/i);
+    if (!match) return null;
+    return match[0].trim();
+  };
+
 
   // Check if we're still processing (scenes not yet generated)
   // Status can be 'pending' or we check if scenes are empty
   const isProcessing = (result as any).status === 'pending' || result.scenes.length === 0;
+  const missingAssets = getMissingAssets();
+  const canStartImageGeneration = !!assetRequirements && missingAssets.length === 0;
   
   // Check if all scenes have at least one image
   const allScenesHaveImages = result.scenes.length > 0 && result.scenes.every((scene: any) => 
@@ -1256,6 +1643,21 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   // Only show background generation message if images are being generated AND not all scenes have images yet
   const showImageGenerationMessage = backgroundGenerationStarted && !isProcessing && !allScenesHaveImages;
   const isWideAspect = getImageGenerationSettings().aspectRatio === '16:9';
+  const selectableImageIds = generatedImages
+    .map((img, idx) => ({ img, id: getImageId(img, idx) }))
+    .filter(({ img }) => !img.generating)
+    .map(({ id }) => id);
+  const allSelectableSelected =
+    selectableImageIds.length > 0 && selectableImageIds.every(id => selectedImageIds.has(id));
+
+  const handleSelectAllImages = () => {
+    setSelectedImageIds(new Set(selectableImageIds));
+  };
+
+  const handleClearImageSelection = () => {
+    setSelectedImageIds(new Set());
+    setSelectedImagePairIds(new Set());
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -1289,6 +1691,100 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {assetRequirements && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm sm:text-base font-semibold text-white">Reference Assets Needed</h3>
+              <p className="text-xs text-gray-400 mt-1">
+                Upload each asset once. We reuse it across all scenes that need it.
+              </p>
+            </div>
+            <button
+              onClick={handleStartImageGenerationFromAssets}
+              disabled={!canStartImageGeneration || startingAssetGeneration || isProcessing}
+              className="px-3 py-2 bg-[#D1FE17] text-black text-xs sm:text-sm font-medium rounded-lg hover:bg-[#B8E014] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {startingAssetGeneration ? 'Starting...' : 'Generate Images'}
+            </button>
+          </div>
+
+          {missingAssets.length > 0 && (
+            <div className="flex items-center justify-between mt-2">
+              <p className="text-[11px] text-yellow-300">
+                Missing {missingAssets.length} asset{missingAssets.length > 1 ? 's' : ''} (optional).
+              </p>
+              <button
+                onClick={handleIgnoreAllAssets}
+                className="px-2 py-1 text-[11px] text-gray-300 border border-gray-700 rounded hover:bg-gray-800 transition-colors"
+              >
+                Ignore All
+              </button>
+            </div>
+          )}
+
+          {assetRequirements.assets.length === 0 ? (
+            <p className="text-[11px] text-gray-400 mt-4">
+              No reference assets are required for these scenes.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {assetRequirements.assets.map((asset) => {
+                const uploadedUrl = assetUploads[asset.id];
+                const isIgnored = uploadedUrl === IGNORED_ASSET;
+                const isUploading = uploadingAssets.has(asset.id);
+                return (
+                  <div key={asset.id} className="bg-gray-950 border border-gray-800 rounded-lg p-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-16 h-16 rounded-lg bg-gray-800 overflow-hidden flex items-center justify-center text-[10px] text-gray-400">
+                        {uploadedUrl && !isIgnored ? (
+                          <img src={uploadedUrl} alt={asset.label} className="w-full h-full object-cover" />
+                        ) : (
+                          isIgnored ? 'Ignored' : 'No image'
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs sm:text-sm text-white font-medium truncate">{asset.label}</p>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          {getAssetTypeLabel(asset.type)} • Scenes {asset.sceneIndices.join(', ')}
+                        </p>
+                        <div className="mt-2">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            disabled={isUploading}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                handleAssetUpload(asset.id, file);
+                                e.currentTarget.value = '';
+                              }
+                            }}
+                            className="text-[11px] text-gray-300"
+                          />
+                          {isUploading && (
+                            <span className="ml-2 text-[10px] text-gray-400">Uploading...</span>
+                          )}
+                        </div>
+                        <label className="mt-2 flex items-center gap-2 text-[11px] text-blue-300">
+                          <input
+                            type="checkbox"
+                            checked={isIgnored}
+                            onChange={(e) => handleAssetIgnore(asset.id, e.target.checked)}
+                            className="w-3 h-3 text-blue-500 bg-gray-800 border-gray-600 focus:ring-blue-400"
+                          />
+                          Ignore this asset
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1711,11 +2207,22 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
       {generatedImages.length > 0 && (
         <div className="space-y-4">
+          <div className="flex items-center justify-end">
+            <button
+              onClick={allSelectableSelected ? handleClearImageSelection : handleSelectAllImages}
+              disabled={selectableImageIds.length === 0}
+              className="px-3 py-1.5 text-xs text-white border border-gray-700 rounded-lg hover:border-[#D1FE17] hover:text-[#D1FE17] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {allSelectableSelected ? 'Clear selection' : 'Select all'}
+            </button>
+          </div>
           <ImageCarousel
             images={generatedImages}
             onImageClick={setSelectedImage}
             selectedImages={selectedImageIds}
             onImageSelect={handleImageSelect}
+            selectedImagePairs={selectedImagePairIds}
+            onImagePairSelect={handleImagePairSelect}
             onSkip={(image) => {
               // Find and abort the request for this image
               const requestKey = `${image.sceneIndex}-${image.imageIndex ?? 0}`;
@@ -1741,6 +2248,14 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                 <p className="text-sm text-white">
                   {selectedImageIds.size} image{selectedImageIds.size > 1 ? 's' : ''} selected
                 </p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openEditVideoPromptDialog}
+                  disabled={generatingVideo}
+                  className="px-3 py-2 text-xs text-white border border-gray-700 rounded-lg hover:border-[#D1FE17] hover:text-[#D1FE17] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Edit & Generate Video
+                </button>
                 <button
                   onClick={() => setShowVideoModelDialog(true)}
                   disabled={generatingVideo}
@@ -1756,12 +2271,47 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                   )}
                 </button>
               </div>
+              </div>
             </div>
           )}
 
           {generatedVideos.length > 0 && (
             <div className="bg-gray-900 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-800">
-              <h2 className="text-base sm:text-lg font-semibold text-white mb-4">Generated Videos</h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-base sm:text-lg font-semibold text-white">Generated Videos</h2>
+                {generatedVideos.some(video => !video.generating && video.url) && (
+                  <button
+                    onClick={handleDownloadAllVideos}
+                    disabled={downloadingAllVideos}
+                    className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                    title="Download all generated videos"
+                  >
+                    {downloadingAllVideos ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Downloading...
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                          />
+                        </svg>
+                        Download All Videos
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {generatedVideos.map((video) => (
                   <div
@@ -1870,12 +2420,12 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                 <input
                   type="radio"
                   name="videoModel"
-                  value="seedance-1.5-pro"
-                  checked={selectedVideoModel === 'seedance-1.5-pro'}
-                  onChange={() => setSelectedVideoModel('seedance-1.5-pro')}
+                  value="seedance-1-pro-fast"
+                  checked={selectedVideoModel === 'seedance-1-pro-fast'}
+                  onChange={() => setSelectedVideoModel('seedance-1-pro-fast')}
                   className="w-4 h-4 text-[#D1FE17] bg-gray-800 border-gray-600 focus:ring-[#D1FE17]"
                 />
-                Seedance 1.5 Pro
+                Seedance 1 Pro Fast
               </label>
               <label className="flex items-center gap-2 text-sm text-white cursor-pointer">
                 <input
@@ -1889,6 +2439,23 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                 Veo 3.1
               </label>
             </div>
+            <label className="flex items-center justify-between gap-3 text-sm text-white mt-3">
+              <span>Camera fixed</span>
+              <button
+                type="button"
+                onClick={() => setVideoCameraFixed(prev => !prev)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  videoCameraFixed ? 'bg-[#D1FE17]' : 'bg-gray-700'
+                }`}
+                aria-pressed={videoCameraFixed}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${
+                    videoCameraFixed ? 'translate-x-4' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+            </label>
             <div className="flex items-center justify-end gap-2 mt-5">
               <button
                 onClick={() => setShowVideoModelDialog(false)}
@@ -1982,6 +2549,70 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                 type="button"
               >
                 {regeneratingSingleScene ? 'Regenerating...' : 'Save & Regenerate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditVideoPromptDialog && (
+        <div className="fixed inset-0 z-[90] bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 w-full max-w-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white text-sm font-semibold">Edit Video Prompt</h3>
+              <button
+                onClick={() => setShowEditVideoPromptDialog(false)}
+                className="text-gray-400 hover:text-white"
+                type="button"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Video Prompt</label>
+                <textarea
+                  value={editVideoPrompt}
+                  onChange={(e) => setEditVideoPrompt(e.target.value)}
+                  className="w-full min-h-[160px] bg-gray-800 text-white text-xs rounded-lg border border-gray-700 p-3 focus:outline-none focus:border-[#D1FE17]"
+                  placeholder="Edit the video prompt..."
+                />
+              </div>
+              <label className="flex items-center justify-between gap-3 text-xs text-white">
+                <span>Camera fixed</span>
+                <button
+                  type="button"
+                  onClick={() => setVideoCameraFixed(prev => !prev)}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                    videoCameraFixed ? 'bg-[#D1FE17]' : 'bg-gray-700'
+                  }`}
+                  aria-pressed={videoCameraFixed}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-black transition-transform ${
+                      videoCameraFixed ? 'translate-x-4' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setShowEditVideoPromptDialog(false)}
+                className="px-3 py-1.5 text-xs text-gray-300 border border-gray-700 rounded-lg hover:bg-gray-800"
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerateSingleVideo}
+                disabled={generatingVideo}
+                className="px-3 py-1.5 text-xs bg-[#D1FE17] text-black rounded-lg font-semibold disabled:opacity-50"
+                type="button"
+              >
+                {generatingVideo ? 'Generating...' : 'Generate Video'}
               </button>
             </div>
           </div>

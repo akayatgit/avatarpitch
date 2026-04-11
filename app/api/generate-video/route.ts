@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
     // Note: The seedance model typically uses a single image input
     const inputImageUrl = imageUrls[0];
 
-    const selectedModel = model || 'seedance-1.5-pro';
+    const selectedModel = model || 'seedance-1-pro-fast';
     const basePrompt =
       prompt ||
       (sourcePrompt ? await convertImagePromptToVideoPrompt(sourcePrompt) : '') ||
@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
         input.last_frame = lastFrameImage;
       }
     } else {
-      modelId = 'bytedance/seedance-1.5-pro';
+      modelId = 'bytedance/seedance-1-pro-fast';
       input = {
         fps: fps || 24,
         prompt: basePrompt,

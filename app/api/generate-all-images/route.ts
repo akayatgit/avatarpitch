@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
       projectId,
       scenes,
       referenceImageUrls,
+      sceneReferenceImageUrls,
       model,
       numImages,
       aspectRatio,
@@ -42,19 +43,22 @@ export async function POST(request: NextRequest) {
         ? [referenceImageUrls]
         : [];
 
-    // Flux-Schnell doesn't require reference images
-    if (model !== 'flux-schnell' && imageUrls.length === 0) {
-      return NextResponse.json(
-        { error: 'At least one reference image URL is required' },
-        { status: 400 }
-      );
-    }
+    const getReferencesForScene = (sceneIndex: number): string[] => {
+      if (sceneReferenceImageUrls && typeof sceneReferenceImageUrls === 'object') {
+        const refs = sceneReferenceImageUrls[String(sceneIndex)] || [];
+        return Array.from(new Set(refs));
+      }
+      return Array.from(new Set(imageUrls));
+    };
+
+    // Allow empty reference images; models may fall back to prompt-only generation.
 
     // Start background processing (don't await - return immediately)
     processImagesInBackground(
       projectId,
       scenes,
       imageUrls,
+      sceneReferenceImageUrls,
       model,
       numImages || 1,
       aspectRatio || '9:16',
@@ -107,6 +111,7 @@ export async function processImagesInBackground(
   projectId: string,
   scenes: any[],
   referenceImageUrls: string[],
+  sceneReferenceImageUrls: Record<string, string[]> | null,
   model: string,
   numImages: number,
   aspectRatio: string,
@@ -152,12 +157,18 @@ export async function processImagesInBackground(
     }
   }
 
+  const getReferencesForScene = (sceneIndex: number): string[] => {
+    if (sceneReferenceImageUrls && typeof sceneReferenceImageUrls === 'object') {
+      const refs = sceneReferenceImageUrls[String(sceneIndex)] || [];
+      return Array.from(new Set(refs));
+    }
+    return Array.from(new Set(referenceImageUrls));
+  };
+
   if (generationMode === 'sequential') {
-    // Sequential mode: generate one image at a time, using previous scene's first image as reference
+    // Sequential mode: generate one image at a time with scene-specific references
     console.log(`[${projectId}] Starting SEQUENTIAL image generation mode with ${imageGenerationTasks.length} tasks`);
-    
-    let currentReferenceImages = [...referenceImageUrls];
-    
+
     // Sort tasks by scene index, then by image index to ensure proper order
     const sortedTasks = [...imageGenerationTasks].sort((a, b) => {
       if (a.sceneIndex !== b.sceneIndex) {
@@ -166,9 +177,14 @@ export async function processImagesInBackground(
       return a.imageIndex - b.imageIndex;
     });
     
-    // Track the first image from each scene to use as reference for the next scene
+    const sceneOrder: number[] = [];
+    for (const task of sortedTasks) {
+      if (!sceneOrder.includes(task.sceneIndex)) {
+        sceneOrder.push(task.sceneIndex);
+      }
+    }
     const firstImageByScene = new Map<number, string>();
-    
+
     // Process each image one at a time (truly sequential)
     for (let i = 0; i < sortedTasks.length; i++) {
       const { sceneIndex, scenePrompt, imageIndex } = sortedTasks[i];
@@ -182,9 +198,18 @@ export async function processImagesInBackground(
       console.log(`[${projectId}] [SEQUENTIAL] Processing task ${i + 1}/${sortedTasks.length}: Scene ${sceneIndex}, Image ${imageIndex}`);
 
       try {
-        // Build input using current reference images (includes previous scene's first image)
+        // Build input using scene-specific references (+ previous scene's first image if available)
+        const sceneRefs = getReferencesForScene(sceneIndex);
+        const sceneOrderIndex = sceneOrder.indexOf(sceneIndex);
+        const previousSceneIndex = sceneOrderIndex > 0 ? sceneOrder[sceneOrderIndex - 1] : null;
+        const previousSceneFirstImage =
+          previousSceneIndex != null ? firstImageByScene.get(previousSceneIndex) : null;
+        const combinedRefs = previousSceneFirstImage && model !== 'flux-schnell'
+          ? Array.from(new Set([...sceneRefs, previousSceneFirstImage]))
+          : sceneRefs;
+
         const input = modelConfig.buildInput(
-          currentReferenceImages,
+          combinedRefs,
           scenePrompt,
           null, // outfitUrl - can be added later
           1, // Always generate 1 image per call
@@ -211,15 +236,9 @@ export async function processImagesInBackground(
             url: imageUrl,
           });
 
-          // If this is the first image (imageIndex === 0) of a scene, save it for the next scene
-          if (imageIndex === 0 && !firstImageByScene.has(sceneIndex) && model !== 'flux-schnell') {
+          if (imageIndex === 0 && !firstImageByScene.has(sceneIndex)) {
             firstImageByScene.set(sceneIndex, imageUrl);
-            
-            // Update reference images for the next scene
-            // Keep original reference images and add the first image from the current scene
-            currentReferenceImages = [...referenceImageUrls, imageUrl];
-            
-            console.log(`[${projectId}] [SEQUENTIAL] Scene ${sceneIndex} first image saved. Will use as reference for next scene.`);
+            console.log(`[${projectId}] [SEQUENTIAL] Scene ${sceneIndex} first image saved. Will use for next scene.`);
           }
 
           console.log(`[${projectId}] [SEQUENTIAL] Completed task ${i + 1}/${sortedTasks.length}: Scene ${sceneIndex}, Image ${imageIndex}`);
@@ -243,7 +262,7 @@ export async function processImagesInBackground(
       try {
         // Build input using the model config
         const input = modelConfig.buildInput(
-          referenceImageUrls,
+          getReferencesForScene(sceneIndex),
           scenePrompt,
           null, // outfitUrl - can be added later
           1, // Always generate 1 image per call
@@ -490,10 +509,24 @@ function buildComprehensiveScenePrompt(scene: any, allScenes: any[]): string {
 
   const parts: string[] = [];
 
+  const extractTimelineSection = (text: string) => {
+    const timelineMatch = text.match(/(?:^|\n)\s*0\.0s\s*-\s[\s\S]*/i);
+    if (!timelineMatch) {
+      return { cleaned: text, timeline: null as string | null };
+    }
+    const timelineStart = timelineMatch.index ?? text.indexOf(timelineMatch[0]);
+    const cleaned = text.slice(0, timelineStart).trim();
+    const timeline = text.slice(timelineStart).trim();
+    return { cleaned, timeline };
+  };
+
   // Add Image Prompt if exists (with placeholder replacement)
   if (scene.imagePrompt) {
     const imagePrompt = replacePlaceholders(scene.imagePrompt, inputs);
-    parts.push(`Image Prompt: ${imagePrompt}`);
+    const { cleaned } = extractTimelineSection(imagePrompt);
+    if (cleaned) {
+      parts.push(`Image Prompt: ${cleaned}`);
+    }
   }
 
   // Add Negative Prompt if exists (with placeholder replacement)

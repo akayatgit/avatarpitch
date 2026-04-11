@@ -48,7 +48,26 @@ export function isSupabaseNetworkError(error: any): boolean {
 
   // Supabase errors can have different structures
   const errorMessage = (error.message || error.error || String(error)).toLowerCase();
-
+  const errorCode = error.code?.toLowerCase() || '';
+  
+  // Check for specific Supabase error codes that indicate network issues
+  // PGRST116 = connection timeout, PGRST301 = service unavailable
+  const networkErrorCodes = ['pgrst116', 'pgrst301', 'econnrefused', 'enotfound', 'etimedout'];
+  
+  // Check if it's a known network error code
+  if (networkErrorCodes.some(code => errorCode.includes(code))) {
+    return true;
+  }
+  
+  // Check for network-related error messages, but exclude common database errors
+  // that might contain "connection" but aren't network issues
+  const databaseErrorIndicators = ['relation', 'column', 'syntax', 'permission', 'authentication', 'authorization'];
+  const isDatabaseError = databaseErrorIndicators.some(indicator => errorMessage.includes(indicator));
+  
+  if (isDatabaseError) {
+    return false; // Don't treat database errors as network errors
+  }
+  
   return isNetworkError({ message: errorMessage });
 }
 

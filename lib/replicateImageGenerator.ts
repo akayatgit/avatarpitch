@@ -16,29 +16,44 @@ function parsePrompt(prompt?: string): string | object {
 }
 
 // Helper function to get dimensions from aspect ratio
-function getDimensions(aspectRatio: string, size: string): { width: number; height: number } {
+function getDimensions(aspectRatio: string, size: string, minWidth: number = 0): { width: number; height: number } {
   const sizeMultiplier = size === '4K' ? 2 : 1;
   const baseWidth = size === '4K' ? 2048 : 1024;
   const baseHeight = size === '4K' ? 2048 : 1024;
   
+  let dimensions: { width: number; height: number };
+  
   switch (aspectRatio) {
     case '16:9':
-      return {
+      dimensions = {
         width: Math.round(baseWidth * sizeMultiplier),
         height: Math.round((baseWidth * 9 / 16) * sizeMultiplier),
       };
+      break;
     case '1:1':
-      return {
+      dimensions = {
         width: Math.round(baseWidth * sizeMultiplier),
         height: Math.round(baseHeight * sizeMultiplier),
       };
+      break;
     case '9:16':
     default:
-      return {
+      dimensions = {
         width: Math.round((baseHeight * 9 / 16) * sizeMultiplier),
         height: Math.round(baseHeight * sizeMultiplier),
       };
+      break;
   }
+  
+  // Ensure minimum width requirement (e.g., for seedream-4.5 which requires width >= 1024)
+  if (minWidth > 0 && dimensions.width < minWidth) {
+    // Scale up proportionally to meet minimum width
+    const scale = minWidth / dimensions.width;
+    dimensions.width = minWidth;
+    dimensions.height = Math.round(dimensions.height * scale);
+  }
+  
+  return dimensions;
 }
 
 // Seedream-4.5 model handler
@@ -51,7 +66,8 @@ const seedream4Config: ModelConfig = {
     }
     
     const prompt = parsePrompt(customPrompt);
-    const dimensions = getDimensions(aspectRatio, size);
+    // seedream-4.5 requires width >= 1024
+    const dimensions = getDimensions(aspectRatio, size, 1024);
     
     return {
       size: size,

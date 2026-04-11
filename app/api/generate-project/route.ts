@@ -25,6 +25,7 @@ export async function POST(request: NextRequest) {
       numImages,
       aspectRatio,
       size,
+      generationMode,
     } = await request.json();
 
     if (!projectId) {
@@ -88,7 +89,8 @@ export async function POST(request: NextRequest) {
       model,
       numImages,
       aspectRatio,
-      size
+      size,
+      generationMode
     ).catch(async (error) => {
       console.error('Background project generation error:', error);
       // Update status to failed on error
@@ -168,7 +170,8 @@ async function saveSceneToDatabase(
   model: string | null,
   numImages: number | null,
   aspectRatio: string | null,
-  size: string | null
+  size: string | null,
+  generationMode: 'fast' | 'sequential' | null
 ) {
   try {
     const scenesWithContext = {
@@ -185,12 +188,13 @@ async function saveSceneToDatabase(
       textOverlaySuggestions,
       thumbnailPrompt,
       // Store image generation settings for regeneration
-      imageGenerationSettings: referenceImageUrls && model && numImages && aspectRatio && size ? {
-        referenceImageUrls,
+      imageGenerationSettings: model && numImages && aspectRatio && size ? {
+        referenceImageUrls: referenceImageUrls || [],
         model,
         numImages,
         aspectRatio,
         size,
+        generationMode: generationMode || 'fast',
       } : undefined,
     };
 
@@ -251,7 +255,8 @@ async function processProjectInBackground(
   model: string | null,
   numImages: number | null,
   aspectRatio: string | null,
-  size: string | null
+  size: string | null,
+  generationMode: 'fast' | 'sequential' | null
 ) {
   try {
     // Check if generation should be stopped before starting
@@ -379,7 +384,8 @@ async function processProjectInBackground(
             model,
             numImages,
             aspectRatio,
-            size
+            size,
+            generationMode
           );
 
           console.log(`[generate-project] Saved scene ${idx + 1}/${sceneCount} for project ${projectId}`);
@@ -408,80 +414,38 @@ async function processProjectInBackground(
       throw new Error('First scene generation failed');
     }
 
-    // Step 3: Start image generation if reference images are provided (or if using Flux-Schnell which doesn't need them)
-    const isFluxSchnell = model === 'flux-schnell';
-    const hasRequiredImages = isFluxSchnell || (referenceImageUrls && referenceImageUrls.length > 0);
-    
-    console.log(`[generate-project] Checking image generation requirements for project ${projectId}:`, {
-      hasReferenceImages: !!referenceImageUrls && referenceImageUrls.length > 0,
-      referenceImageCount: referenceImageUrls?.length || 0,
-      hasModel: !!model,
-      isFluxSchnell: isFluxSchnell,
-      hasNumImages: !!numImages,
-      hasAspectRatio: !!aspectRatio,
-      hasSize: !!size,
-    });
+    // Extract scene assets for reference image collection (no image generation yet)
+    try {
+      const { extractSceneAssets } = await import('@/lib/generation/sceneAssetExtractor');
+      const assetRequirements = await extractSceneAssets(allScenes);
 
-    if (hasRequiredImages && model && numImages && aspectRatio && size) {
-      // Use the scenes we just generated
-      const scenes = allScenes;
-      console.log(`[generate-project] Found ${scenes.length} scenes for project ${projectId}`);
+      const generatedOutput = {
+        format: 'storyboard_v1' as const,
+        scenes: allScenes,
+        textOverlaySuggestions,
+        thumbnailPrompt,
+        imageGenerationSettings: model && numImages && aspectRatio && size ? {
+          referenceImageUrls: referenceImageUrls || [],
+          model,
+          numImages,
+          aspectRatio,
+          size,
+          generationMode: generationMode || 'fast',
+        } : undefined,
+        assetRequirements,
+        assetUploads: {},
+      };
 
-      if (scenes.length > 0) {
-        // Start background image generation
-        // Import and call the processing function directly
-        try {
-          const { processImagesInBackground } = await import('../generate-all-images/route');
-          
-          // Ensure referenceImageUrls is an array
-          const imageUrls = Array.isArray(referenceImageUrls)
-            ? referenceImageUrls
-            : referenceImageUrls
-              ? [referenceImageUrls]
-              : [];
-
-          // Flux-Schnell doesn't require reference images, other models do
-          const canGenerate = isFluxSchnell || imageUrls.length > 0;
-          
-          if (canGenerate && model && numImages && aspectRatio && size) {
-            // Start background processing (don't await - return immediately)
-            processImagesInBackground(
-              projectId,
-              scenes,
-              imageUrls,
-              model,
-              numImages,
-              aspectRatio,
-              size
-            ).catch((error) => {
-              console.error(`[generate-project] Background image generation error for project ${projectId}:`, error);
-            });
-
-            console.log(`[generate-project] Image generation started for project ${projectId} with ${scenes.length} scenes, model: ${model}, ${imageUrls.length} reference images`);
-          } else {
-            console.warn(`[generate-project] Skipping image generation for project ${projectId}: missing required parameters`, {
-              hasImages: imageUrls.length > 0,
-              hasModel: !!model,
-              hasNumImages: !!numImages,
-              hasAspectRatio: !!aspectRatio,
-              hasSize: !!size,
-            });
-          }
-        } catch (error) {
-          console.error(`[generate-project] Error starting image generation for project ${projectId}:`, error);
-          // Don't fail the whole process if image generation fails to start
-        }
-      } else {
-        console.warn(`[generate-project] No scenes found for project ${projectId}, skipping image generation`);
-      }
-    } else {
-      const missingItems = [];
-      if (!hasRequiredImages && !isFluxSchnell) missingItems.push('reference images');
-      if (!model) missingItems.push('model');
-      if (!numImages) missingItems.push('numImages');
-      if (!aspectRatio) missingItems.push('aspectRatio');
-      if (!size) missingItems.push('size');
-      console.log(`[generate-project] Skipping image generation for project ${projectId}: missing ${missingItems.join(', ')}`);
+      await supabaseAdmin
+        .from('content_creation_requests')
+        .update({
+          generated_output: generatedOutput,
+          status: 'completed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', projectId);
+    } catch (error) {
+      console.error(`[generate-project] Error extracting assets for project ${projectId}:`, error);
     }
 
     console.log(`Project ${projectId} generation completed successfully`);
