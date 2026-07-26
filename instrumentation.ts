@@ -1,6 +1,12 @@
 export const runtime = 'nodejs';
 
 export function register() {
+  // Corporate TLS interception (common on Siemens networks) breaks Node's
+  // default CA trust for OpenAI / Replicate. Allow outbound HTTPS in local/dev.
+  if (process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '0') {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  }
+
   if (process.env.NODE_ENV !== 'development') {
     return;
   }
