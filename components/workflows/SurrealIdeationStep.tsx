@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import ImageModelSelect from '@/components/workflows/ImageModelSelect';
 import { toDisplayImageUrl } from '@/lib/imageDisplay';
 import { applyDraftRefineLocks } from '@/lib/styles/surrealTech';
+import { DEFAULT_IMAGE_MODEL_ID, type ImageModelId } from '@/lib/tools/imageModels';
 import type { FootageSuggestion } from '@/lib/tools/suggestFootage';
 import type { ImageStyleMode } from '@/lib/tools/imageGeneration';
 
@@ -22,7 +24,6 @@ export interface SurrealIdeationResult {
 interface Props {
   onComplete: (result: SurrealIdeationResult) => void;
   onBack?: () => void;
-  /** Match the workflow's still style (drone = aerial, continuous = scene) */
   stillMode?: ImageStyleMode;
 }
 
@@ -33,13 +34,6 @@ interface DraftCard {
   loading: boolean;
 }
 
-/**
- * Shared first step for every workflow:
- * 1) paste Pinterest / inspiration image URL → thumbnail
- * 2) what the avatar will explain
- * 3) generate 6 Nano Banana 2 concept stills → pick one
- * 4) text corrections → high-quality refine from that draft
- */
 export default function SurrealIdeationStep({
   onComplete,
   onBack,
@@ -50,6 +44,7 @@ export default function SurrealIdeationStep({
   const [resolving, setResolving] = useState(false);
   const [thumbError, setThumbError] = useState<string | null>(null);
   const [topic, setTopic] = useState('');
+  const [imageModel, setImageModel] = useState<ImageModelId>(DEFAULT_IMAGE_MODEL_ID);
   const [inspirationRead, setInspirationRead] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<DraftCard[]>([]);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
@@ -61,7 +56,6 @@ export default function SurrealIdeationStep({
   const resolveSeq = useRef(0);
   const suggestSeq = useRef(0);
 
-  // Resolve + preview thumbnail as soon as a URL is pasted
   useEffect(() => {
     const trimmed = rawUrl.trim();
     if (!trimmed) {
@@ -118,7 +112,6 @@ export default function SurrealIdeationStep({
     suggestion: FootageSuggestion,
     inspirationImageUrl: string
   ): Promise<string> => {
-    // Nano Banana: ~80% replicate Pinterest ref; keep diorama template intact
     const scenePrompt = [
       suggestion.imagePrompt.trim(),
       'CRITICAL: Match the attached inspiration/Pinterest image at ~80% fidelity — same subjects, pose, composition, colors, and lighting. Only ~20% creative adaptation.',
@@ -131,7 +124,7 @@ export default function SurrealIdeationStep({
         scenePrompt,
         referenceImageUrls: [inspirationImageUrl],
         numImages: 1,
-        model: 'nano-banana-2',
+        model: imageModel,
         resolution: '2K',
         imageSearch: true,
         googleSearch: true,
@@ -153,7 +146,7 @@ export default function SurrealIdeationStep({
       return;
     }
     if (!topic.trim()) {
-      setError('Describe what you want to explain from this image');
+      setError('Describe what you want to explain');
       return;
     }
 
@@ -182,9 +175,7 @@ export default function SurrealIdeationStep({
       }
 
       const list: FootageSuggestion[] = Array.isArray(data.suggestions) ? data.suggestions : [];
-      if (list.length === 0) {
-        throw new Error('No suggestions returned — try again');
-      }
+      if (list.length === 0) throw new Error('No suggestions returned — try again');
 
       const inspirationImageUrl =
         typeof data.inspirationImageUrl === 'string' ? data.inspirationImageUrl : resolvedUrl;
@@ -215,11 +206,7 @@ export default function SurrealIdeationStep({
             setDrafts((prev) =>
               prev.map((card, i) =>
                 i === index
-                  ? {
-                      ...card,
-                      loading: false,
-                      error: err instanceof Error ? err.message : 'Draft failed',
-                    }
+                  ? { ...card, loading: false, error: err instanceof Error ? err.message : 'Draft failed' }
                   : card
               )
             );
@@ -235,10 +222,7 @@ export default function SurrealIdeationStep({
   };
 
   const handleRefineHighQuality = async () => {
-    if (!resolvedUrl) {
-      setError('Inspiration image is required');
-      return;
-    }
+    if (!resolvedUrl) { setError('Inspiration image is required'); return; }
     if (selectedIndex == null || !drafts[selectedIndex]?.imageUrl) {
       setError('Pick one draft image first');
       return;
@@ -259,17 +243,15 @@ export default function SurrealIdeationStep({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scenePrompt,
-          // Inspiration first (subject lock), draft second (chosen concept)
           referenceImageUrls: [resolvedUrl, selected.imageUrl],
           numImages: 1,
+          model: imageModel,
           size: '2K',
           mode: 'none',
         }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Failed to generate high-quality image');
-      }
+      if (!response.ok || data.error) throw new Error(data.error || 'Failed to generate high-quality image');
       const url: string | undefined = Array.isArray(data.images) ? data.images[0] : undefined;
       if (!url) throw new Error('High-quality image API returned no usable image');
       setFinalImageUrl(url);
@@ -281,18 +263,12 @@ export default function SurrealIdeationStep({
   };
 
   const handleContinue = () => {
-    if (!resolvedUrl) {
-      setError('Inspiration image is required');
-      return;
-    }
+    if (!resolvedUrl) { setError('Inspiration image is required'); return; }
     if (selectedIndex == null || !drafts[selectedIndex]?.imageUrl) {
       setError('Pick one draft image first');
       return;
     }
-    if (!finalImageUrl) {
-      setError('Generate the high-quality image before continuing');
-      return;
-    }
+    if (!finalImageUrl) { setError('Generate the high-quality image before continuing'); return; }
     onComplete({
       inspirationImageUrl: resolvedUrl,
       topic: topic.trim(),
@@ -309,113 +285,103 @@ export default function SurrealIdeationStep({
   const selectedDraft = selectedIndex != null ? drafts[selectedIndex] : null;
 
   return (
-    <div className="card space-y-5">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-white">1. Inspiration + idea</h2>
-          <p className="text-sm text-gray-400 mt-1">
-            Paste inspiration — we invent 6 isometric miniature diorama worlds (Nano Banana
-            template) a drone can fly through. Pick one, correct in text, refine HQ.
-          </p>
-        </div>
+    <div className="card space-y-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-white tracking-tight">Inspiration</h2>
         {onBack && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="text-xs text-gray-400 hover:text-white shrink-0"
-          >
+          <button type="button" onClick={onBack} className="text-xs text-gray-500 hover:text-white">
             All templates
           </button>
         )}
       </div>
 
       {error && (
-        <div className="text-sm text-red-400 bg-red-900/20 p-3 rounded-xl border border-red-800">
+        <div className="text-xs text-red-400 bg-red-950/60 px-3 py-2.5 rounded-xl border border-red-900">
           {error}
         </div>
       )}
 
-      <div>
-        <label htmlFor="inspo-url" className="block text-sm font-medium text-white mb-2">
-          Pinterest / inspiration image URL *
-        </label>
-        <input
-          id="inspo-url"
-          type="url"
-          value={rawUrl}
-          onChange={(e) => {
-            setRawUrl(e.target.value);
-            resetDownstream();
-          }}
-          className="input-field"
-          placeholder="https://pin.it/... or https://i.pinimg.com/... or https://www.pinterest.com/pin/..."
-        />
-        <p className="mt-1 text-[11px] text-gray-500">
-          Supports pin.it short links, full Pinterest pin URLs, and direct pinimg.com image addresses.
-        </p>
-      </div>
+      {/* Pinterest / image URL */}
+      <input
+        id="inspo-url"
+        type="url"
+        value={rawUrl}
+        onChange={(e) => { setRawUrl(e.target.value); resetDownstream(); }}
+        className="input-field text-sm"
+        placeholder="Paste a pin.it or pinterest.com URL…"
+      />
 
-      <div className="flex items-start gap-4">
-        <div className="w-28 shrink-0 aspect-[9/16] rounded-lg border border-gray-700 bg-gray-900 overflow-hidden flex items-center justify-center">
+      {/* Inspiration image preview — full width */}
+      {(resolving || resolvedUrl || thumbError) && (
+        <div className="w-full rounded-2xl overflow-hidden bg-gray-950 border border-gray-800">
           {resolving ? (
-            <div className="w-6 h-6 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
+            <div className="h-48 flex items-center justify-center">
+              <div className="w-6 h-6 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : thumbError ? (
+            <div className="h-20 flex items-center justify-center px-4">
+              <p className="text-xs text-red-400 text-center">{thumbError}</p>
+            </div>
           ) : resolvedUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={toDisplayImageUrl(resolvedUrl)}
-              alt="Inspiration thumbnail"
-              className="w-full h-full object-cover"
-              onError={() =>
-                setThumbError('Thumbnail failed to load — try a direct pinimg.com image URL')
-              }
+              alt="Inspiration"
+              className="w-full max-h-72 object-contain"
+              onError={() => setThumbError('Thumbnail failed to load — try a direct pinimg.com URL')}
             />
-          ) : (
-            <span className="text-[10px] text-gray-500 px-2 text-center">Thumbnail</span>
-          )}
+          ) : null}
         </div>
-        <div className="flex-1 min-w-0">
-          {thumbError && <p className="text-xs text-red-400 mb-2">{thumbError}</p>}
-          {resolvedUrl && !thumbError && (
-            <p className="text-xs text-[#D1FE17] mb-2">Inspiration loaded — highest style weight</p>
-          )}
-          <label htmlFor="topic" className="block text-sm font-medium text-white mb-2">
-            What will you explain from this image? *
-          </label>
-          <textarea
-            id="topic"
-            value={topic}
-            onChange={(e) => {
-              setTopic(e.target.value);
-              if (draftsReady) resetDownstream();
-            }}
-            className="input-field min-h-[100px]"
-            placeholder='e.g. "Why fresher SE salaries in Bangalore are high" — keep THIS image look'
-          />
-        </div>
+      )}
+
+      {/* Topic */}
+      <textarea
+        id="topic"
+        value={topic}
+        onChange={(e) => { setTopic(e.target.value); if (draftsReady) resetDownstream(); }}
+        className="input-field text-sm min-h-[80px] resize-none"
+        placeholder='What will you explain? e.g. "Why SE salaries in Bangalore are rising"'
+      />
+
+      {/* Image model chips */}
+      <div className="space-y-1.5">
+        <p className="text-xs text-gray-500 font-medium">Image model</p>
+        <ImageModelSelect
+          value={imageModel}
+          onChange={setImageModel}
+          disabled={suggesting || anyDraftLoading || refining}
+        />
       </div>
 
+      {/* Generate concepts */}
       <button
         type="button"
         onClick={handleSuggestAsImages}
         disabled={suggesting || anyDraftLoading || resolving || !resolvedUrl || !topic.trim()}
-        className="w-full btn-primary disabled:opacity-50 min-h-[44px]"
+        className="w-full btn-primary disabled:opacity-40 text-sm py-3"
       >
         {suggesting || anyDraftLoading
-          ? 'Generating 6 Nano Banana concepts...'
-          : 'Generate suggestion images (Nano Banana 2)'}
+          ? `Generating with ${imageModel === 'seedream-3' ? 'Seedream 3' : 'Nano Banana 2'}…`
+          : 'Generate 6 concepts'}
       </button>
 
+      {/* Inspiration read (collapsed into a chip) */}
       {inspirationRead && (
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-          <p className="text-[11px] font-medium text-[#D1FE17] mb-1">Inspiration read</p>
-          <p className="text-[11px] text-gray-400 leading-relaxed">{inspirationRead}</p>
-        </div>
+        <details className="group">
+          <summary className="text-[11px] text-[#D1FE17] cursor-pointer select-none list-none flex items-center gap-1">
+            <span className="group-open:rotate-90 transition-transform inline-block">›</span>
+            Inspiration notes
+          </summary>
+          <p className="mt-1.5 text-[11px] text-gray-500 leading-relaxed">{inspirationRead}</p>
+        </details>
       )}
 
+      {/* Draft concept grid */}
       {draftsReady && (
-        <div className="space-y-3">
-          <p className="text-sm font-medium text-white">Pick one concept still</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-white">Pick a concept</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {drafts.map((card, i) => {
               const selected = selectedIndex === i;
               return (
@@ -423,21 +389,18 @@ export default function SurrealIdeationStep({
                   key={`${card.suggestion.title}-${i}`}
                   type="button"
                   disabled={!card.imageUrl || card.loading}
-                  onClick={() => {
-                    setSelectedIndex(i);
-                    setFinalImageUrl(null);
-                  }}
-                  className={`text-left rounded-xl border-2 overflow-hidden transition-colors ${
+                  onClick={() => { setSelectedIndex(i); setFinalImageUrl(null); }}
+                  className={`text-left rounded-2xl border-2 overflow-hidden transition-all active:scale-[0.98] ${
                     selected
-                      ? 'border-[#D1FE17] bg-[#D1FE17]/10'
-                      : 'border-gray-800 bg-gray-900 hover:border-gray-600'
+                      ? 'border-[#D1FE17] shadow-[0_0_12px_rgba(209,254,23,0.2)]'
+                      : 'border-gray-800 hover:border-gray-600'
                   } disabled:opacity-60`}
                 >
                   <div className="aspect-[9/16] bg-gray-950 flex items-center justify-center relative">
                     {card.loading && (
-                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
-                        <div className="w-6 h-6 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
-                        <span className="text-[10px] text-gray-500">Nano Banana...</span>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5">
+                        <div className="w-5 h-5 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
+                        <span className="text-[9px] text-gray-600">Generating…</span>
                       </div>
                     )}
                     {card.imageUrl && (
@@ -445,23 +408,23 @@ export default function SurrealIdeationStep({
                       <img
                         src={toDisplayImageUrl(card.imageUrl)}
                         alt={card.suggestion.title}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-contain"
                       />
                     )}
                     {card.error && !card.loading && (
-                      <p className="text-[10px] text-red-400 px-3 text-center">{card.error}</p>
+                      <p className="text-[9px] text-red-400 px-2 text-center">{card.error}</p>
                     )}
                   </div>
-                  <div className="p-2.5 space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <h3 className="text-xs font-semibold text-white line-clamp-2">
+                  <div className="p-2 space-y-0.5 bg-black">
+                    <div className="flex items-center justify-between gap-1">
+                      <h3 className="text-[10px] font-semibold text-white line-clamp-1">
                         {card.suggestion.title}
                       </h3>
-                      <span className="text-[9px] uppercase tracking-wide text-[#D1FE17] shrink-0">
+                      <span className="text-[8px] uppercase tracking-wide text-[#D1FE17] shrink-0">
                         {card.suggestion.scale}
                       </span>
                     </div>
-                    <p className="text-[10px] text-gray-500 line-clamp-2">{card.suggestion.concept}</p>
+                    <p className="text-[9px] text-gray-600 line-clamp-2">{card.suggestion.concept}</p>
                   </div>
                 </button>
               );
@@ -470,54 +433,42 @@ export default function SurrealIdeationStep({
         </div>
       )}
 
+      {/* Corrections + HQ refine */}
       {selectedDraft?.imageUrl && (
-        <div className="space-y-3 border-t border-gray-800 pt-4">
-          <div>
-            <label htmlFor="corrections" className="block text-sm font-medium text-white mb-2">
-              Corrections for the high-quality version
-            </label>
-            <textarea
-              id="corrections"
-              value={corrections}
-              onChange={(e) => {
-                setCorrections(e.target.value);
-                setFinalImageUrl(null);
-              }}
-              className="input-field min-h-[90px]"
-              placeholder='e.g. "more silicon mountains on the left, remove the floating logo, brighter golden hour, keep the chip river"'
-            />
-            <p className="mt-1 text-[11px] text-gray-500">
-              Optional. Inspiration locks subjects; the draft guides the tech twist; your text fixes
-              the rest.
-            </p>
-          </div>
+        <div className="space-y-3 pt-2 border-t border-gray-900">
+          <textarea
+            id="corrections"
+            value={corrections}
+            onChange={(e) => { setCorrections(e.target.value); setFinalImageUrl(null); }}
+            className="input-field text-sm min-h-[72px] resize-none"
+            placeholder='Corrections (optional) — e.g. "brighter golden hour, more mountains left"'
+          />
 
           <button
             type="button"
             onClick={handleRefineHighQuality}
             disabled={refining}
-            className="w-full btn-primary disabled:opacity-50 min-h-[44px]"
+            className="w-full btn-primary disabled:opacity-40 text-sm py-3"
           >
-            {refining ? 'Generating high-quality still...' : 'Generate high-quality from draft'}
+            {refining ? 'Refining…' : 'Refine to HD'}
           </button>
 
           {finalImageUrl && (
             <div className="space-y-3">
-              <p className="text-sm font-medium text-white">High-quality still</p>
-              <div className="max-w-xs mx-auto aspect-[9/16] rounded-lg border border-[#D1FE17]/40 overflow-hidden bg-gray-900">
+              <div className="w-full rounded-2xl overflow-hidden border border-[#D1FE17]/30 bg-gray-950">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={toDisplayImageUrl(finalImageUrl)}
                   alt="High-quality concept still"
-                  className="w-full h-full object-cover"
+                  className="w-full object-contain max-h-[70vh]"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleContinue}
-                className="w-full btn-primary min-h-[44px]"
+                className="w-full btn-primary text-sm py-3"
               >
-                Use this still → continue workflow
+                Use this → continue
               </button>
             </div>
           )}

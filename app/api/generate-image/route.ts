@@ -5,6 +5,7 @@ import {
   type ImageStyleMode,
 } from '@/lib/tools/imageGeneration';
 import { generateNanoBananaImage } from '@/lib/tools/nanoBananaImage';
+import { generateSeedreamImage } from '@/lib/tools/seedreamImage';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -67,6 +68,15 @@ export async function POST(request: NextRequest) {
         images,
         model: 'nano-banana-2',
       });
+    }
+
+    if (model === 'seedream-3') {
+      const images = await generateSeedreamImage({
+        prompt: scenePrompt,
+        aspectRatio: '9:16',
+        outputFormat: 'jpg',
+      });
+      return NextResponse.json({ success: true, images, model: 'seedream-3' });
     }
 
     const styleMode: ImageStyleMode =
