@@ -348,10 +348,10 @@ export default function SurrealIdeationStep({
             resetDownstream();
           }}
           className="input-field"
-          placeholder="https://i.pinimg.com/... or https://www.pinterest.com/pin/..."
+          placeholder="https://pin.it/... or https://i.pinimg.com/... or https://www.pinterest.com/pin/..."
         />
         <p className="mt-1 text-[11px] text-gray-500">
-          Prefer &quot;Copy image address&quot; (pinimg.com). Pin pages are resolved when possible.
+          Supports pin.it short links, full Pinterest pin URLs, and direct pinimg.com image addresses.
         </p>
       </div>
 
