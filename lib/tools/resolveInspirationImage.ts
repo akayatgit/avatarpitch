@@ -5,14 +5,48 @@
 
 function extractOgImage(html: string): string | null {
   const patterns = [
+    // Standard order: property then content (with or without quotes on attr name)
+    /property=["']?og:image["']?\s[^>]*content=["']([^"']+)["']/i,
     /property=["']og:image["']\s+content=["']([^"']+)["']/i,
+    // Reversed order
+    /content=["']([^"']+)["']\s[^>]*property=["']?og:image["']/i,
     /content=["']([^"']+)["']\s+property=["']og:image["']/i,
+    // secure_url variant
+    /property=["']?og:image:secure_url["']?\s[^>]*content=["']([^"']+)["']/i,
+    /content=["']([^"']+)["']\s[^>]*property=["']?og:image:secure_url["']/i,
+    // Twitter card
+    /name=["']?twitter:image["']?\s[^>]*content=["']([^"']+)["']/i,
     /name=["']twitter:image["']\s+content=["']([^"']+)["']/i,
     /content=["']([^"']+)["']\s+name=["']twitter:image["']/i,
   ];
   for (const re of patterns) {
     const m = html.match(re);
     if (m?.[1]) return m[1].trim();
+  }
+  return null;
+}
+
+/**
+ * Pinterest embeds pin data as JSON inside script tags.
+ * Extract the highest-quality image URL from that JSON blob.
+ */
+function extractPinterestJsonImage(html: string): string | null {
+  // Pinterest typically puts image URLs inside JSON that includes "orig" resolution
+  const jsonPatterns = [
+    // "orig":{"url":"https://i.pinimg.com/..."}
+    /"orig"\s*:\s*\{\s*"url"\s*:\s*"(https:\/\/i\.pinimg\.com\/[^"]+)"/i,
+    // "images":{"orig":{"url":"..."}}
+    /"images"\s*:\s*\{[^}]{0,200}"orig"\s*:\s*\{[^}]{0,100}"url"\s*:\s*"(https:\/\/i\.pinimg\.com\/[^"]+)"/i,
+    // Fallback: any pinimg.com URL that looks like a full-size image
+    /"url"\s*:\s*"(https:\/\/i\.pinimg\.com\/originals\/[^"]+)"/i,
+    /"url"\s*:\s*"(https:\/\/i\.pinimg\.com\/\d+x\/[^"]+)"/i,
+  ];
+  for (const re of jsonPatterns) {
+    const m = html.match(re);
+    if (m?.[1]) {
+      // Unescape JSON unicode escapes (e.g. \u002F → /)
+      return m[1].replace(/\\u002F/gi, '/').replace(/\\u0026/gi, '&').trim();
+    }
   }
   return null;
 }
@@ -63,9 +97,18 @@ export async function resolveInspirationImageUrl(raw: string): Promise<string> {
 
   const response = await fetch(trimmed, {
     headers: {
-      Accept: 'text/html,application/xhtml+xml',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Cache-Control': 'no-cache',
+      Pragma: 'no-cache',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Upgrade-Insecure-Requests': '1',
       'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     },
     redirect: 'follow',
     cache: 'no-store',
@@ -76,11 +119,13 @@ export async function resolveInspirationImageUrl(raw: string): Promise<string> {
   }
 
   const html = await response.text();
-  const og = extractOgImage(html);
-  if (!og) {
+
+  // Try og:image / twitter:image first, then fall back to Pinterest's embedded JSON
+  const imageUrl = extractOgImage(html) ?? extractPinterestJsonImage(html);
+  if (!imageUrl) {
     throw new Error(
       'Could not extract an image from that Pinterest page. Open the pin → right-click the image → copy image address (pinimg.com) and paste that.'
     );
   }
-  return og;
+  return imageUrl;
 }
