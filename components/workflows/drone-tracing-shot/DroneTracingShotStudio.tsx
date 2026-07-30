@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import PathDrawingCanvas, { PathDrawingCanvasHandle } from '@/components/tools/PathDrawingCanvas';
 import DurationSelect, { clampVideoDuration } from '@/components/workflows/DurationSelect';
+import ImageModelSelect from '@/components/workflows/ImageModelSelect';
 import SensitiveVideoFallback from '@/components/workflows/SensitiveVideoFallback';
 import SurrealIdeationStep, {
   type SurrealIdeationResult,
@@ -13,11 +14,13 @@ import VideoReferenceSelect, {
 } from '@/components/workflows/VideoReferenceSelect';
 import { toDisplayImageUrl } from '@/lib/imageDisplay';
 import { applyInspirationImageLocks } from '@/lib/styles/surrealTech';
+import { DEFAULT_IMAGE_MODEL_ID, type ImageModelId } from '@/lib/tools/imageModels';
 import {
   DEFAULT_VIDEO_MODEL_ID,
   getVideoModel,
   type VideoModelId,
 } from '@/lib/tools/videoModels';
+
 function buildGrokSkipPathPrompt(ideation: SurrealIdeationResult, durationSec: number): string {
   return [
     `Animate this still into a ${durationSec}s cinematic vertical 9:16 shot.`,
@@ -29,16 +32,12 @@ function buildGrokSkipPathPrompt(ideation: SurrealIdeationResult, durationSec: n
   ].join('\n');
 }
 
-/**
- * Workflow: Style & Idea → aerial still → draw path → assemble → video model
- */
-
 type Step = 'ideation' | 'world' | 'draw' | 'prompt' | 'video';
 
 const STEPS: Array<{ id: Step; label: string }> = [
-  { id: 'ideation', label: 'Style & Idea' },
-  { id: 'world', label: 'World Still' },
-  { id: 'draw', label: 'Draw Path' },
+  { id: 'ideation', label: 'Idea' },
+  { id: 'world', label: 'World' },
+  { id: 'draw', label: 'Path' },
   { id: 'prompt', label: 'Prompt' },
   { id: 'video', label: 'Video' },
 ];
@@ -54,11 +53,10 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
 
   const [duration, setDuration] = useState(12);
   const [resolution, setResolution] = useState<'720p' | '480p'>('720p');
+  const [imageModel, setImageModel] = useState<ImageModelId>(DEFAULT_IMAGE_MODEL_ID);
   const [videoModel, setVideoModel] = useState<VideoModelId>(DEFAULT_VIDEO_MODEL_ID);
   const [referenceSource, setReferenceSource] = useState<VideoReferenceSource>('path');
-  const [sensitiveSuggestedModel, setSensitiveSuggestedModel] = useState<VideoModelId | null>(
-    null
-  );
+  const [sensitiveSuggestedModel, setSensitiveSuggestedModel] = useState<VideoModelId | null>(null);
   const [generatingImage, setGeneratingImage] = useState(false);
 
   const [aerialImageUrl, setAerialImageUrl] = useState<string | null>(null);
@@ -84,7 +82,6 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
     setStep('world');
   };
 
-  /** Optional re-refine from draft + new corrections (keeps inspiration weight). */
   const handleGenerateAerial = async () => {
     if (!ideation) return;
     setError(null);
@@ -104,15 +101,13 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
             ideation.draftImageUrl || ideation.finalImageUrl,
           ].filter(Boolean),
           numImages: 1,
+          model: imageModel,
           size: '2K',
-          // Do not force aerial landscape suffix — preserves inspiration subjects
           mode: 'none',
         }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Failed to generate the world still');
-      }
+      if (!response.ok || data.error) throw new Error(data.error || 'Failed to generate the world still');
       const url: string | undefined = Array.isArray(data.images) ? data.images[0] : undefined;
       if (!url) throw new Error('Image API returned no usable image');
       setAerialImageUrl(url);
@@ -128,12 +123,8 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
   const handleVideoModelChange = (id: VideoModelId) => {
     setVideoModel(id);
     setSensitiveSuggestedModel(null);
-    // Grok keeps red lines — default to clean still
-    if (id === 'grok-imagine-1.5') {
-      setReferenceSource('original');
-    } else if (annotatedImage) {
-      setReferenceSource('path');
-    }
+    if (id === 'grok-imagine-1.5') setReferenceSource('original');
+    else if (annotatedImage) setReferenceSource('path');
   };
 
   const handleSkipPathForGrok = () => {
@@ -184,13 +175,9 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
         }),
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Failed to assemble the drone prompt');
-      }
+      if (!response.ok || data.error) throw new Error(data.error || 'Failed to assemble the drone prompt');
       setPrompt(typeof data.prompt === 'string' ? data.prompt : '');
-      if (typeof data.duration === 'number') {
-        setDuration(clampVideoDuration(data.duration, duration));
-      }
+      if (typeof data.duration === 'number') setDuration(clampVideoDuration(data.duration, duration));
       setPathAnalysis(typeof data.pathAnalysis === 'string' ? data.pathAnalysis : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to assemble the drone prompt');
@@ -205,35 +192,23 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
   };
 
   const handleGenerateVideo = async (modelOverride?: VideoModelId) => {
-    if (!prompt.trim()) {
-      setError('A prompt is required');
-      return;
-    }
+    if (!prompt.trim()) { setError('A prompt is required'); return; }
     const modelToUse = modelOverride ?? videoModel;
     let source = referenceSource;
     if (modelOverride) {
       setVideoModel(modelOverride);
       setSensitiveSuggestedModel(null);
-      // Sensitive fallback → Grok: always use clean still (no red line)
-      if (modelOverride === 'grok-imagine-1.5') {
-        source = 'original';
-        setReferenceSource('original');
-      }
+      if (modelOverride === 'grok-imagine-1.5') { source = 'original'; setReferenceSource('original'); }
     }
     if (modelToUse === 'seedance-2' && !annotatedImage) {
       setError('Seedance needs a drawn path — draw one, or switch to Grok Imagine');
       return;
     }
-    // Seedance: ONE ref only — annotated still ([Image1] = scene + path choreography)
-    // Grok: single first-frame from reference dropdown (prefer clean original)
     const referenceImages =
       modelToUse === 'seedance-2'
         ? [annotatedImage!]
         : [resolveVideoReference(source)].filter((u): u is string => Boolean(u));
-    if (referenceImages.length === 0) {
-      setError('A reference image is required');
-      return;
-    }
+    if (referenceImages.length === 0) { setError('A reference image is required'); return; }
     setError(null);
     setSensitiveSuggestedModel(null);
     setGeneratingVideo(true);
@@ -243,20 +218,12 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
       const response = await fetch('/api/generate-video', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          referenceImages,
-          duration,
-          resolution,
-          model: modelToUse,
-        }),
+        body: JSON.stringify({ prompt: prompt.trim(), referenceImages, duration, resolution, model: modelToUse }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.error) {
         if (data.code === 'SENSITIVE_CONTENT') {
-          setSensitiveSuggestedModel(
-            (data.suggestedModel as VideoModelId) || 'grok-imagine-1.5'
-          );
+          setSensitiveSuggestedModel((data.suggestedModel as VideoModelId) || 'grok-imagine-1.5');
           setReferenceSource('original');
         }
         throw new Error(data.error || 'Failed to generate the drone shot');
@@ -292,325 +259,329 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
   };
 
   const handleStartNew = () => {
-    setStep('ideation');
-    setIdeation(null);
-    setError(null);
-    setAerialImageUrl(null);
-    setHasPath(false);
-    setAnnotatedImage(null);
-    setPrompt('');
-    setDuration(12);
-    setPathAnalysis(null);
-    setVideoUrl(null);
-    setVideoModel(DEFAULT_VIDEO_MODEL_ID);
-    setReferenceSource('path');
+    setStep('ideation'); setIdeation(null); setError(null);
+    setAerialImageUrl(null); setHasPath(false); setAnnotatedImage(null);
+    setPrompt(''); setDuration(12); setPathAnalysis(null); setVideoUrl(null);
+    setVideoModel(DEFAULT_VIDEO_MODEL_ID); setReferenceSource('path');
     setSensitiveSuggestedModel(null);
   };
 
   return (
-    <div className="space-y-4 max-w-4xl">
-        <div className="flex items-center gap-2 flex-wrap">
-          {STEPS.map((s, i) => (
-            <div key={s.id} className="flex items-center gap-2">
+    <div className="space-y-3 max-w-4xl">
+
+      {/* ── iOS-style step dots ── */}
+      <div className="flex items-start gap-0 px-1">
+        {STEPS.map((s, i) => (
+          <div key={s.id} className="flex items-start flex-1">
+            <div className="flex flex-col items-center flex-1">
               <div
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium ${
-                  i === stepIndex
-                    ? 'bg-[#D1FE17] text-black'
-                    : i < stepIndex
-                      ? 'bg-gray-800 text-[#D1FE17]'
-                      : 'bg-gray-900 text-gray-500'
+                className={`rounded-full transition-all duration-300 ${
+                  i < stepIndex
+                    ? 'w-2.5 h-2.5 bg-[#D1FE17]/60 mt-0.5'
+                    : i === stepIndex
+                    ? 'w-3.5 h-3.5 bg-[#D1FE17] shadow-[0_0_10px_rgba(209,254,23,0.55)]'
+                    : 'w-2 h-2 border border-gray-700 mt-0.5'
+                }`}
+              />
+              <span
+                className={`text-[9px] mt-1 font-medium whitespace-nowrap transition-colors ${
+                  i === stepIndex ? 'text-[#D1FE17]' : i < stepIndex ? 'text-gray-600' : 'text-gray-700'
                 }`}
               >
-                <span>{i + 1}</span>
-                <span className="hidden sm:inline">{s.label}</span>
-              </div>
-              {i < STEPS.length - 1 && <div className="w-4 h-px bg-gray-700" />}
+                {s.label}
+              </span>
             </div>
-          ))}
+            {i < STEPS.length - 1 && (
+              <div
+                className={`h-px flex-1 mt-[6px] transition-colors ${
+                  i < stepIndex ? 'bg-[#D1FE17]/25' : 'bg-gray-800'
+                }`}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <div className="text-xs text-red-400 bg-red-950/60 px-3 py-2.5 rounded-xl border border-red-900">
+          {error}
         </div>
+      )}
 
-        {error && (
-          <div className="text-sm text-red-400 bg-red-900/20 p-4 rounded-xl border border-red-800">
-            {error}
+      {/* ── Ideation ── */}
+      {step === 'ideation' && (
+        <SurrealIdeationStep
+          onComplete={handleIdeationComplete}
+          onBack={onBack}
+          stillMode="aerial"
+        />
+      )}
+
+      {/* ── World still ── */}
+      {step === 'world' && ideation && (
+        <div className="card space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-white">{ideation.suggestion.title}</h2>
+            <p className="text-xs text-[#D1FE17] mt-1 uppercase tracking-wide">
+              {ideation.suggestion.scale} · {ideation.topic}
+            </p>
           </div>
-        )}
 
-        {step === 'ideation' && (
-          <SurrealIdeationStep
-            onComplete={handleIdeationComplete}
-            onBack={onBack}
-            stillMode="aerial"
-          />
-        )}
+          {aerialImageUrl && (
+            <div className="w-full rounded-2xl overflow-hidden border border-gray-800 bg-gray-950">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={toDisplayImageUrl(aerialImageUrl)}
+                alt="World still"
+                className="w-full object-contain max-h-[60vh]"
+              />
+            </div>
+          )}
 
-        {step === 'world' && ideation && (
-          <div className="card space-y-5">
+          {/* Settings row */}
+          <div className="grid grid-cols-2 gap-3">
+            <DurationSelect value={duration} onChange={setDuration} />
             <div>
-              <h2 className="text-base font-semibold text-white">{ideation.suggestion.title}</h2>
-              <p className="text-sm text-gray-400 mt-1">{ideation.suggestion.concept}</p>
-              <p className="text-xs text-[#D1FE17] mt-2 uppercase">
-                {ideation.suggestion.scale} · explaining: {ideation.topic}
-              </p>
-            </div>
-            {aerialImageUrl && (
-              <div className="max-w-xs mx-auto aspect-[9/16] rounded-lg border border-gray-700 overflow-hidden bg-gray-900">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={toDisplayImageUrl(aerialImageUrl)}
-                  alt="World still"
-                  className="w-full h-full object-cover"
-                />
+              <p className="text-xs text-gray-500 font-medium mb-1.5">Resolution</p>
+              <div className="flex gap-2">
+                {(['720p', '480p'] as const).map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setResolution(r)}
+                    className={`flex-1 px-3 py-2 rounded-xl text-xs font-medium border-2 transition-all ${
+                      resolution === r
+                        ? 'border-[#D1FE17] bg-[#D1FE17]/10 text-[#D1FE17]'
+                        : 'border-gray-800 text-gray-500'
+                    }`}
+                  >
+                    {r}
+                  </button>
+                ))}
               </div>
-            )}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <DurationSelect value={duration} onChange={setDuration} />
-              <div>
-                <label className="block text-sm font-medium text-white mb-2">Video resolution</label>
-                <div className="flex gap-2">
-                  {(['720p', '480p'] as const).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setResolution(r)}
-                      className={`flex-1 px-4 py-3 rounded-lg border-2 ${
-                        resolution === r
-                          ? 'border-[#D1FE17] bg-[#D1FE17]/20 text-[#D1FE17]'
-                          : 'border-gray-700 text-gray-400'
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <VideoModelSelect value={videoModel} onChange={setVideoModel} />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setStep('ideation')}
-                className="px-4 py-2 text-xs text-gray-400 hover:text-white"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={handleGenerateAerial}
-                disabled={generatingImage}
-                className="px-4 py-2 text-xs text-white border border-gray-700 rounded-lg disabled:opacity-50"
-              >
-                {generatingImage ? 'Regenerating...' : 'Regenerate still'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!aerialImageUrl) {
-                    setError('High-quality still missing — go back and refine one');
-                    return;
-                  }
-                  setHasPath(false);
-                  setStep('draw');
-                }}
-                disabled={!aerialImageUrl}
-                className="flex-1 btn-primary disabled:opacity-50 min-h-[44px]"
-              >
-                Continue to draw path
-              </button>
-              <button
-                type="button"
-                onClick={handleSkipPathForGrok}
-                disabled={!aerialImageUrl}
-                className="w-full sm:w-auto px-4 py-3 text-xs text-white border border-gray-700 rounded-lg disabled:opacity-50"
-              >
-                Skip path → Grok (clean image)
-              </button>
             </div>
           </div>
-        )}
 
-        {step === 'draw' && aerialImageUrl && (
-          <div className="card space-y-4">
+          {/* Image model for regeneration */}
+          <div className="space-y-1.5">
+            <p className="text-xs text-gray-500 font-medium">Image model</p>
+            <ImageModelSelect value={imageModel} onChange={setImageModel} disabled={generatingImage} />
+          </div>
+
+          {/* Video model */}
+          <div className="space-y-1.5">
+            <p className="text-xs text-gray-500 font-medium">Video model</p>
+            <VideoModelSelect value={videoModel} onChange={setVideoModel} />
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setStep('ideation')}
+              className="px-3 py-2 text-xs text-gray-500 hover:text-white"
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerateAerial}
+              disabled={generatingImage}
+              className="px-4 py-2 text-xs text-white border border-gray-700 rounded-xl disabled:opacity-40 active:scale-95 transition-all"
+            >
+              {generatingImage ? 'Regenerating…' : 'Regenerate'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!aerialImageUrl) { setError('High-quality still missing — go back and refine one'); return; }
+                setHasPath(false); setStep('draw');
+              }}
+              disabled={!aerialImageUrl}
+              className="flex-1 btn-primary disabled:opacity-40 text-sm py-2.5"
+            >
+              Draw path →
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleSkipPathForGrok}
+            disabled={!aerialImageUrl}
+            className="w-full px-4 py-2.5 text-xs text-gray-400 border border-gray-800 rounded-xl disabled:opacity-40 hover:border-gray-600 transition-all"
+          >
+            Skip path — use Grok Imagine
+          </button>
+        </div>
+      )}
+
+      {/* ── Draw path ── */}
+      {step === 'draw' && aerialImageUrl && (
+        <div className="card space-y-3">
+          <h2 className="text-sm font-semibold text-white">Draw the flight path</h2>
+          <div className="max-w-sm mx-auto w-full">
+            <PathDrawingCanvas
+              ref={canvasRef}
+              imageUrl={toDisplayImageUrl(aerialImageUrl)}
+              onPathChange={setHasPath}
+            />
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => canvasRef.current?.undo()}
+              className="px-3 py-2 text-xs text-white border border-gray-800 rounded-xl hover:border-gray-600 transition-all"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={() => canvasRef.current?.clear()}
+              className="px-3 py-2 text-xs text-white border border-gray-800 rounded-xl hover:border-gray-600 transition-all"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerateAerial}
+              disabled={generatingImage}
+              className="px-3 py-2 text-xs text-white border border-gray-800 rounded-xl disabled:opacity-40 transition-all"
+            >
+              {generatingImage ? 'Regenerating…' : 'Regen still'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setStep('world')}
+              className="px-3 py-2 text-xs text-gray-500 hover:text-white"
+            >
+              Back
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleConfirmPath}
+            disabled={!hasPath}
+            className="w-full btn-primary disabled:opacity-40 text-sm py-3"
+          >
+            {hasPath ? 'Use this path →' : 'Draw a path to continue'}
+          </button>
+          <button
+            type="button"
+            onClick={handleSkipPathForGrok}
+            className="w-full px-4 py-2.5 text-xs text-gray-400 border border-gray-800 rounded-xl hover:border-gray-600 transition-all"
+          >
+            Skip — Grok Imagine (clean image)
+          </button>
+        </div>
+      )}
+
+      {/* ── Prompt review ── */}
+      {step === 'prompt' && (
+        <div className="card space-y-4">
+          <h2 className="text-sm font-semibold text-white">Flight prompt</h2>
+
+          {pathAnalysis && (
+            <div className="bg-gray-950 border border-gray-800 rounded-xl p-3">
+              <p className="text-[10px] font-medium text-[#D1FE17] mb-1">Traced path</p>
+              <p className="text-[10px] text-gray-500">{pathAnalysis}</p>
+            </div>
+          )}
+
+          {generatingPrompt ? (
+            <div className="min-h-[200px] flex items-center justify-center bg-gray-950 rounded-xl border border-gray-800">
+              <div className="w-7 h-7 border-[3px] border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <textarea
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              className="w-full min-h-[260px] bg-gray-950 text-white text-xs rounded-xl border border-gray-800 p-3 font-mono focus:border-[#D1FE17] focus:outline-none resize-none"
+            />
+          )}
+
+          <div className="space-y-3">
             <div>
-              <h2 className="text-base font-semibold text-white">Draw the flight path</h2>
-              <p className="text-sm text-gray-400 mt-1">
-                Optional for Grok Imagine (it often keeps the red line). Required for Seedance.
-              </p>
+              <p className="text-xs text-gray-500 font-medium mb-1.5">Video model</p>
+              <VideoModelSelect value={videoModel} onChange={handleVideoModelChange} disabled={generatingVideo} />
             </div>
-            <div className="max-w-sm mx-auto w-full">
-              <PathDrawingCanvas
-                ref={canvasRef}
-                imageUrl={toDisplayImageUrl(aerialImageUrl)}
-                onPathChange={setHasPath}
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => canvasRef.current?.undo()}
-                className="px-3 py-1.5 text-xs text-white border border-gray-700 rounded-lg"
-              >
-                Undo
-              </button>
-              <button
-                type="button"
-                onClick={() => canvasRef.current?.clear()}
-                className="px-3 py-1.5 text-xs text-white border border-gray-700 rounded-lg"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                onClick={handleGenerateAerial}
-                disabled={generatingImage}
-                className="px-3 py-1.5 text-xs text-white border border-gray-700 rounded-lg disabled:opacity-50"
-              >
-                {generatingImage ? 'Regenerating...' : 'Regenerate Still'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep('world')}
-                className="px-3 py-1.5 text-xs text-gray-400"
-              >
-                Back
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={handleConfirmPath}
-              disabled={!hasPath}
-              className="w-full btn-primary disabled:opacity-50 min-h-[44px]"
-            >
-              {hasPath ? 'Use This Flight Path' : 'Draw a path to continue'}
-            </button>
-            <button
-              type="button"
-              onClick={handleSkipPathForGrok}
-              className="w-full px-4 py-3 text-xs text-white border border-gray-700 rounded-lg"
-            >
-              Skip path — use clean image with Grok Imagine
-            </button>
+            <VideoReferenceSelect
+              value={referenceSource}
+              onChange={setReferenceSource}
+              originalImageUrl={aerialImageUrl}
+              pathImageUrl={annotatedImage}
+              disabled={generatingVideo}
+              showGrokHint={videoModel === 'grok-imagine-1.5'}
+            />
           </div>
-        )}
 
-        {step === 'prompt' && (
-          <div className="card space-y-4">
-            <h2 className="text-base font-semibold text-white">Review the flight prompt</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="sm:col-span-1 space-y-3">
-                {pathAnalysis && (
-                  <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
-                    <p className="text-[11px] font-medium text-[#D1FE17] mb-1">Traced path</p>
-                    <p className="text-[11px] text-gray-400">{pathAnalysis}</p>
-                  </div>
-                )}
-                {!annotatedImage && (
-                  <p className="text-[11px] text-gray-500">
-                    Path skipped — using the clean still for Grok.
-                  </p>
-                )}
-              </div>
-              <div className="sm:col-span-2">
-                {generatingPrompt ? (
-                  <div className="min-h-[280px] flex items-center justify-center bg-gray-900 rounded-lg border border-gray-800">
-                    <div className="w-8 h-8 border-4 border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : (
-                  <textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    className="w-full min-h-[380px] bg-gray-900 text-white text-xs rounded-lg border border-gray-700 p-3 font-mono"
-                  />
-                )}
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <VideoModelSelect
-                value={videoModel}
-                onChange={handleVideoModelChange}
-                disabled={generatingVideo}
-              />
-              <VideoReferenceSelect
-                value={referenceSource}
-                onChange={setReferenceSource}
-                originalImageUrl={aerialImageUrl}
-                pathImageUrl={annotatedImage}
-                disabled={generatingVideo}
-                showGrokHint={videoModel === 'grok-imagine-1.5'}
-              />
-            </div>
-            <div className="flex justify-between">
-              <button
-                type="button"
-                onClick={() => setStep(annotatedImage || aerialImageUrl ? 'draw' : 'world')}
-                className="text-xs text-gray-400"
-              >
-                Back
-              </button>
-              <p className="text-xs text-gray-400">
-                {duration}s · {resolution} · {getVideoModel(videoModel).name} ·{' '}
-                {referenceSource === 'path' ? 'path ref' : 'original ref'}
-              </p>
-            </div>
-            {sensitiveSuggestedModel && (
-              <SensitiveVideoFallback
-                suggestedModel={sensitiveSuggestedModel}
-                disabled={generatingVideo}
-                onSwitchAndRetry={(id) => handleGenerateVideo(id)}
-              />
-            )}
-            <button
-              type="button"
-              onClick={() => handleGenerateVideo()}
-              disabled={generatingPrompt || generatingVideo || !prompt.trim()}
-              className="w-full btn-primary disabled:opacity-50 min-h-[44px]"
-            >
-              {generatingVideo
-                ? `Generating with ${getVideoModel(videoModel).name}...`
-                : `Generate with ${getVideoModel(videoModel).name}`}
+          <div className="flex items-center justify-between text-[10px] text-gray-600">
+            <button type="button" onClick={() => setStep(annotatedImage || aerialImageUrl ? 'draw' : 'world')} className="hover:text-white">
+              Back
             </button>
+            <span>{duration}s · {resolution} · {referenceSource === 'path' ? 'path ref' : 'original'}</span>
           </div>
-        )}
 
-        {step === 'video' && (
-          <div className="card space-y-4">
-            <h2 className="text-base font-semibold text-white">Your surreal FPV shot</h2>
-            {generatingVideo || !videoUrl ? (
-              <div className="max-w-sm mx-auto aspect-[9/16] bg-gray-900 rounded-lg flex items-center justify-center">
-                <div className="w-10 h-10 border-4 border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
+          {sensitiveSuggestedModel && (
+            <SensitiveVideoFallback
+              suggestedModel={sensitiveSuggestedModel}
+              disabled={generatingVideo}
+              onSwitchAndRetry={(id) => handleGenerateVideo(id)}
+            />
+          )}
+
+          <button
+            type="button"
+            onClick={() => handleGenerateVideo()}
+            disabled={generatingPrompt || generatingVideo || !prompt.trim()}
+            className="w-full btn-primary disabled:opacity-40 text-sm py-3"
+          >
+            {generatingVideo
+              ? `Generating with ${getVideoModel(videoModel).name}…`
+              : `Generate · ${getVideoModel(videoModel).name}`}
+          </button>
+        </div>
+      )}
+
+      {/* ── Video result ── */}
+      {step === 'video' && (
+        <div className="card space-y-4">
+          <h2 className="text-sm font-semibold text-white">Your surreal FPV shot</h2>
+          {generatingVideo || !videoUrl ? (
+            <div className="max-w-sm mx-auto aspect-[9/16] bg-gray-950 rounded-2xl border border-gray-800 flex flex-col items-center justify-center gap-3">
+              <div className="w-10 h-10 border-[3px] border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs text-gray-500">Rendering your shot…</p>
+            </div>
+          ) : (
+            <>
+              <div className="max-w-sm mx-auto">
+                <video src={videoUrl} className="w-full rounded-2xl" controls autoPlay loop />
               </div>
-            ) : (
-              <>
-                <div className="max-w-sm mx-auto">
-                  <video src={videoUrl} className="w-full rounded-lg" controls autoPlay loop />
-                </div>
-                <div className="flex justify-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={handleDownloadVideo}
-                    disabled={downloading}
-                    className="px-4 py-2 bg-[#D1FE17] text-black font-medium rounded-lg disabled:opacity-50"
-                  >
-                    {downloading ? 'Downloading...' : 'Download MP4'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStep('prompt')}
-                    className="px-4 py-2 text-sm text-white border border-gray-700 rounded-lg"
-                  >
-                    Edit Prompt
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleStartNew}
-                    className="px-4 py-2 text-sm text-gray-400"
-                  >
-                    New Shot
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+              <div className="flex gap-2 flex-wrap justify-center">
+                <button
+                  type="button"
+                  onClick={handleDownloadVideo}
+                  disabled={downloading}
+                  className="px-5 py-2.5 bg-[#D1FE17] text-black text-sm font-semibold rounded-xl disabled:opacity-40 active:scale-95 transition-all"
+                >
+                  {downloading ? 'Downloading…' : 'Download MP4'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep('prompt')}
+                  className="px-4 py-2.5 text-xs text-white border border-gray-800 rounded-xl hover:border-gray-600 transition-all"
+                >
+                  Edit prompt
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStartNew}
+                  className="px-4 py-2.5 text-xs text-gray-500 hover:text-white"
+                >
+                  New shot
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
