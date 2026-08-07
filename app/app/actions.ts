@@ -502,14 +502,6 @@ export async function generateProject(formData: FormData) {
     return { error: 'Inputs are required' };
   }
 
-  // Get current user
-  const { getCurrentUser } = await import('@/lib/session');
-  const user = await getCurrentUser();
-  
-  if (!user?.id) {
-    return { error: 'You must be logged in to create a project' };
-  }
-
   let inputs;
   try {
     if (!inputsStr) {
@@ -608,7 +600,7 @@ export async function generateProject(formData: FormData) {
         generated_output: null, // Will be updated when generation completes
         status: 'pending', // Use 'pending' as initial status (will be updated to 'processing' by background API)
         video_url: videoUrl,
-        user_id: user.id,
+        user_id: null,
       })
       .select()
       .single();

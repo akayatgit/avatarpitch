@@ -21,6 +21,12 @@ interface ProjectResultsClientProps {
     videoUrl: string;
     templateName: string;
     projectId?: string;
+    status?: string;
+    errorMessage?: string | null;
+    assetRequirements?: any;
+    assetUploads?: Record<string, string>;
+    imageGenerationSettings?: any;
+    caption?: string;
   };
 }
 

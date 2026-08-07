@@ -4,7 +4,6 @@ import Link from 'next/link';
 import NetworkError from '@/components/NetworkError';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 import ProjectList from '@/components/ProjectList';
-import { getCurrentUser } from '@/lib/session';
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';
@@ -28,15 +27,11 @@ export default async function ProjectsPage() {
     console.warn('[ProjectsPage] Bootstrap warning, continuing anyway:', error.message);
   }
 
-  // Get current user
-  const user = await getCurrentUser();
-  const userId = user?.id;
-
-  // Fetch projects list from content_creation_requests
+  // Fetch all projects (auth removed)
   console.log('[ProjectsPage] Fetching projects...');
   let projects: any[] = [];
   try {
-    let query = supabaseAdmin
+    const { data: requestsData, error: requestsError } = await supabaseAdmin
       .from('content_creation_requests')
       .select(`
         id,
@@ -50,18 +45,7 @@ export default async function ProjectsPage() {
         content_types:content_type_id (
           name
         )
-      `);
-
-    // Filter by user_id if user is logged in, otherwise show empty
-    if (userId) {
-      query = query.eq('user_id', userId);
-    } else {
-      // If not logged in, return empty array (guest users see welcome screen)
-      // Use a condition that will never match to return empty results
-      query = query.is('user_id', null).eq('id', '00000000-0000-0000-0000-000000000000');
-    }
-
-    const { data: requestsData, error: requestsError } = await query
+      `)
       .order('created_at', { ascending: false })
       .limit(50);
     

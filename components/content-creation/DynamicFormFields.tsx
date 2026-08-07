@@ -156,8 +156,8 @@ export default function DynamicFormFields({ contentType, formData, onChange }: D
 
             {field.type === 'list' && (
               <div className="space-y-2">
-                {field.key === 'subject.product.keyPoints' ? (
-                  // Special handling for Description field - multiline textarea
+                {field.key === 'subject.product.keyPoints' || field.listSeparator === 'newline' ? (
+                  // Multiline textarea - one entry per line (needed when values may contain commas)
                   <>
                     <textarea
                       id={fieldId}

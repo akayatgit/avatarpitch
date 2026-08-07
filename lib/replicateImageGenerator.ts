@@ -4,7 +4,15 @@ interface ModelConfig {
   processOutput: (output: any) => Promise<Array<{ url: string; file?: any }>>;
 }
 
-type ImageGenerationModel = 'flux-schnell' | 'seedream-4.5' | 'nano-banana-pro' | 'nano-banana';
+type ImageGenerationModel =
+  | 'gpt-image-2'
+  | 'flux-schnell'
+  | 'seedream-4.5'
+  | 'nano-banana-pro'
+  | 'nano-banana';
+
+/** Models that can generate from prompt alone (no reference images required). */
+export const PROMPT_ONLY_MODELS: ImageGenerationModel[] = ['gpt-image-2', 'flux-schnell'];
 
 function parsePrompt(prompt?: string): string | object {
   if (!prompt) return '';
@@ -155,6 +163,74 @@ const nanoBananaProConfig: ModelConfig = {
   },
 };
 
+// OpenAI GPT Image 2 via Replicate
+const gptImage2Config: ModelConfig = {
+  modelId: 'openai/gpt-image-2',
+  buildInput: (
+    referenceImageUrls: string[],
+    customPrompt?: string,
+    _outfitUrl?: string | null,
+    numImages: number = 1,
+    aspectRatio: string = '9:16',
+    size: string = 'auto'
+  ) => {
+    const prompt = parsePrompt(customPrompt);
+    const quality =
+      size === '4K' || size === '3K' ? 'high' : size === '480p' ? 'low' : 'auto';
+
+    const input: Record<string, unknown> = {
+      prompt: typeof prompt === 'string' ? prompt : JSON.stringify(prompt),
+      quality,
+      background: 'auto',
+      moderation: 'auto',
+      aspect_ratio: aspectRatio || '9:16',
+      number_of_images: Math.min(Math.max(numImages || 1, 1), 10),
+      output_format: 'webp',
+      output_compression: 90,
+    };
+
+    // Schema expects string[] URLs/data URIs — not { value } objects
+    const refs = (referenceImageUrls || []).filter(
+      (url): url is string => typeof url === 'string' && Boolean(url.trim())
+    );
+    if (refs.length > 0) {
+      input.input_images = refs;
+    }
+
+    return input;
+  },
+  processOutput: async (output: any) => {
+    const outputArray = Array.isArray(output) ? output : [output];
+    const results: Array<{ url: string; file?: any }> = [];
+
+    for (const outputItem of outputArray) {
+      let outputUrl: string | null = null;
+      let outputFile: any = null;
+
+      if (outputItem && typeof outputItem.url === 'function') {
+        const urlResult = outputItem.url();
+        outputUrl = typeof urlResult === 'string' ? urlResult : String(urlResult);
+        outputFile = outputItem;
+      } else if (typeof outputItem === 'string') {
+        outputUrl = outputItem;
+      } else if (outputItem && typeof outputItem === 'object') {
+        outputFile = outputItem;
+        if (outputItem.url && typeof outputItem.url === 'string') {
+          outputUrl = outputItem.url;
+        } else if (typeof outputItem.href === 'string') {
+          outputUrl = outputItem.href;
+        }
+      }
+
+      if (outputUrl && typeof outputUrl === 'string') {
+        results.push({ url: outputUrl, file: outputFile });
+      }
+    }
+
+    return results;
+  },
+};
+
 // Flux-Schnell model handler
 const fluxSchnellConfig: ModelConfig = {
   modelId: 'black-forest-labs/flux-schnell',
@@ -264,6 +340,7 @@ const nanoBananaConfig: ModelConfig = {
 
 // Model registry
 const modelRegistry: Record<ImageGenerationModel, ModelConfig> = {
+  'gpt-image-2': gptImage2Config,
   'flux-schnell': fluxSchnellConfig,
   'seedream-4.5': seedream4Config,
   'nano-banana-pro': nanoBananaProConfig,

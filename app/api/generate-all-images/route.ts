@@ -107,6 +107,33 @@ async function shouldStopGeneration(projectId: string): Promise<boolean> {
   }
 }
 
+async function runReplicateWithRetry(
+  replicate: Replicate,
+  modelId: string,
+  input: Record<string, unknown>,
+  label: string,
+  maxAttempts = 5
+) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await replicate.run(modelId as `${string}/${string}`, { input });
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const is429 = message.includes('429') || /throttled|rate limit/i.test(message);
+      if (!is429 || attempt === maxAttempts) {
+        throw error;
+      }
+      const waitMatch = message.match(/resets in ~(\d+)s/i);
+      const waitSec = waitMatch ? Number(waitMatch[1]) + 1 : Math.min(5 * attempt, 30);
+      console.warn(`[${label}] Rate limited (attempt ${attempt}/${maxAttempts}), waiting ${waitSec}s...`);
+      await new Promise((r) => setTimeout(r, waitSec * 1000));
+    }
+  }
+  throw lastError;
+}
+
 export async function processImagesInBackground(
   projectId: string,
   scenes: any[],
@@ -122,7 +149,12 @@ export async function processImagesInBackground(
     auth: process.env.REPLICATE_API_TOKEN!,
   });
 
-  const modelConfig = getModelConfig(model as ImageGenerationModel);
+  const selectedModel = (model || 'gpt-image-2') as ImageGenerationModel;
+  // GPT Image 2 rate limits low-credit accounts — generate one at a time
+  const effectiveMode =
+    selectedModel === 'gpt-image-2' ? 'sequential' : generationMode;
+
+  const modelConfig = getModelConfig(selectedModel);
   const successfulImages: Array<{ sceneIndex: number; url: string }> = [];
 
   // Check if generation should be stopped before starting
@@ -165,9 +197,9 @@ export async function processImagesInBackground(
     return Array.from(new Set(referenceImageUrls));
   };
 
-  if (generationMode === 'sequential') {
+  if (effectiveMode === 'sequential') {
     // Sequential mode: generate one image at a time with scene-specific references
-    console.log(`[${projectId}] Starting SEQUENTIAL image generation mode with ${imageGenerationTasks.length} tasks`);
+    console.log(`[${projectId}] Starting SEQUENTIAL image generation mode (${selectedModel}) with ${imageGenerationTasks.length} tasks`);
 
     // Sort tasks by scene index, then by image index to ensure proper order
     const sortedTasks = [...imageGenerationTasks].sort((a, b) => {
@@ -217,10 +249,12 @@ export async function processImagesInBackground(
           size
         );
 
-        // Run the model (this will take time - truly sequential)
-        const output = await replicate.run(modelConfig.modelId as `${string}/${string}`, {
+        const output = await runReplicateWithRetry(
+          replicate,
+          modelConfig.modelId,
           input,
-        });
+          `${projectId} scene ${sceneIndex}`
+        );
 
         // Process output
         const results = await modelConfig.processOutput(output);
@@ -270,10 +304,12 @@ export async function processImagesInBackground(
           size
         );
 
-        // Run the model
-        const output = await replicate.run(modelConfig.modelId as `${string}/${string}`, {
+        const output = await runReplicateWithRetry(
+          replicate,
+          modelConfig.modelId,
           input,
-        });
+          `${projectId} scene ${sceneIndex}`
+        );
 
         // Process output
         const results = await modelConfig.processOutput(output);

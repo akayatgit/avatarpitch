@@ -74,6 +74,7 @@ export async function GET(
         imageGenerationSettings: generatedOutput.imageGenerationSettings || null,
         assetRequirements: generatedOutput.assetRequirements || null,
         assetUploads: generatedOutput.assetUploads || null,
+        caption: generatedOutput.caption || null,
       },
       {
         headers: {

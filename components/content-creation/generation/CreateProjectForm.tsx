@@ -47,7 +47,7 @@ export default function CreateProjectForm({ templates, generateProject, preselec
   const simulationRef = useRef<{ stop: boolean; actualSceneCount: number | null }>({ stop: false, actualSceneCount: null });
   
   // Image generation settings
-  const [selectedModel, setSelectedModel] = useState<string>('flux-schnell');
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-image-2');
   const [numImages, setNumImages] = useState<number>(1);
   const [aspectRatio, setAspectRatio] = useState<string>('9:16');
   const [size, setSize] = useState<string>('4K');
@@ -373,7 +373,7 @@ export default function CreateProjectForm({ templates, generateProject, preselec
     setError(null);
     setFormInputs({});
     setSelectedTemplateId('');
-    setSelectedModel('flux-schnell');
+    setSelectedModel('gpt-image-2');
     setNumImages(1);
     setAspectRatio('9:16');
     setSize('4K');
@@ -483,14 +483,15 @@ export default function CreateProjectForm({ templates, generateProject, preselec
                   }}
                   className="input-field"
                 >
+                  <option value="gpt-image-2">GPT Image 2</option>
                   <option value="flux-schnell">Flux Schnell</option>
                   <option value="seedream-4.5">Seedream 4.5</option>
                   <option value="nano-banana-pro">Nano Banana Pro</option>
                   <option value="nano-banana">Nano Banana</option>
                 </select>
-                {selectedModel === 'flux-schnell' && (
+                {(selectedModel === 'gpt-image-2' || selectedModel === 'flux-schnell') && (
                   <p className="mt-1 text-xs text-gray-400">
-                    Flux Schnell can generate images from prompts without reference images.
+                    {selectedModel === 'gpt-image-2' ? 'GPT Image 2' : 'Flux Schnell'} can generate from prompts without reference images.
                   </p>
                 )}
               </div>

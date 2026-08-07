@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Replicate from 'replicate';
-import { getModelConfig, ImageGenerationModel } from '@/lib/replicateImageGenerator';
+import {
+  getModelConfig,
+  ImageGenerationModel,
+  PROMPT_ONLY_MODELS,
+} from '@/lib/replicateImageGenerator';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,8 +18,8 @@ export async function POST(request: NextRequest) {
     const imageUrls = Array.isArray(referenceImageUrls) ? referenceImageUrls : 
                      (referenceImageUrls ? [referenceImageUrls] : []);
 
-    // Flux-Schnell doesn't require reference images
-    if (model !== 'flux-schnell' && imageUrls.length === 0) {
+    const selectedModel = (model || 'gpt-image-2') as ImageGenerationModel;
+    if (!PROMPT_ONLY_MODELS.includes(selectedModel) && imageUrls.length === 0) {
       return NextResponse.json({ error: 'At least one reference image URL is required' }, { status: 400 });
     }
 
@@ -23,7 +27,7 @@ export async function POST(request: NextRequest) {
       auth: process.env.REPLICATE_API_TOKEN,
     });
 
-    const modelConfig = getModelConfig(model as ImageGenerationModel);
+    const modelConfig = getModelConfig(selectedModel);
     
     // Build input using the model config with all reference image URLs
     const input = modelConfig.buildInput(

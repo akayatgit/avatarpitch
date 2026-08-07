@@ -1,10 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
 import CreateProjectForm from '@/components/content-creation/generation/CreateProjectForm';
-import ProjectResults from '@/components/content-creation/ProjectResults';
 
 interface CreateProjectPageClientProps {
   templates: Array<{ id: string; name: string }>;
@@ -17,29 +13,6 @@ export default function CreateProjectPageClient({
   generateProject,
   preselectedContentTypeId,
 }: CreateProjectPageClientProps) {
-  const { isAuthenticated, isLoading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push(`/login?callbackUrl=${encodeURIComponent('/app/create')}`);
-    }
-  }, [isAuthenticated, isLoading, router]);
-
-  if (isLoading) {
-    return (
-      <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-white">Loading...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return null; // Will redirect
-  }
-
   return (
     <div className="p-4 sm:p-6 lg:p-8 pb-8 lg:pb-8">
       <div className="mb-6 lg:mb-8">
@@ -53,8 +26,8 @@ export default function CreateProjectPageClient({
           </p>
         </div>
       ) : (
-        <CreateProjectForm 
-          templates={templates || []} 
+        <CreateProjectForm
+          templates={templates || []}
           generateProject={generateProject}
           preselectedContentTypeId={preselectedContentTypeId}
         />
@@ -62,4 +35,3 @@ export default function CreateProjectPageClient({
     </div>
   );
 }
-

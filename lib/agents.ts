@@ -84,4 +84,116 @@ export function createAgentLLM(agent: AgentDefinition): ChatOpenAI {
   });
 }
 
+/** Preferred default pipeline when a content type has no workflow configured. */
+const DEFAULT_WORKFLOW_ROLES = [
+  'creative_strategist',
+  'copywriter',
+  'visual_stylist',
+  'production_design',
+  'video_director',
+  'shot_planner',
+  'final_assembler',
+] as const;
+
+/** Parse agentWorkflow / agents from a content type prompting blob. */
+export function parseAgentWorkflowFromContentType(contentType: {
+  prompting?: any;
+}): AgentWorkflow | null {
+  let agentWorkflow: any = contentType.prompting?.agentWorkflow;
+
+  if (!agentWorkflow && contentType.prompting?.agents) {
+    const agents = contentType.prompting.agents;
+    if (Array.isArray(agents) && agents.length > 0) {
+      const firstAgent = agents[0];
+      if (typeof firstAgent === 'object' && firstAgent?.id) {
+        agentWorkflow = {
+          agents,
+          executionOrder: 'sequential' as const,
+        };
+      } else if (typeof firstAgent === 'string') {
+        agentWorkflow = {
+          agents: (agents as string[]).map((agentName: string, idx: number) => ({
+            id: `agent-${idx + 1}`,
+            name: agentName,
+            role: agentName.toLowerCase().replace(/\s+/g, '_'),
+            order: idx + 1,
+          })),
+          executionOrder: 'sequential' as const,
+        };
+      }
+    }
+  }
+
+  if (agentWorkflow?.agents?.length > 0) {
+    return agentWorkflow as AgentWorkflow;
+  }
+  return null;
+}
+
+/** Load a sensible default workflow from the agents table. */
+export async function loadDefaultAgentWorkflow(): Promise<AgentWorkflow> {
+  const { data, error } = await supabaseAdmin
+    .from('agents')
+    .select('id, name, role, system_prompt, prompt, temperature');
+
+  if (error) {
+    throw new Error(`Failed to load agents: ${error.message}`);
+  }
+
+  const byRole = new Map((data || []).map((a: any) => [a.role, a]));
+  const selected: AgentDefinition[] = [];
+
+  DEFAULT_WORKFLOW_ROLES.forEach((role, idx) => {
+    const agent = byRole.get(role);
+    if (!agent) return;
+    selected.push({
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      systemPrompt: agent.system_prompt || undefined,
+      prompt: agent.prompt || undefined,
+      temperature: agent.temperature != null ? Number(agent.temperature) : 0.7,
+      order: idx + 1,
+    });
+  });
+
+  // If preferred roles missing, fall back to first N agents from DB
+  if (selected.length === 0 && data && data.length > 0) {
+    data.slice(0, 6).forEach((agent: any, idx: number) => {
+      selected.push({
+        id: agent.id,
+        name: agent.name,
+        role: agent.role,
+        systemPrompt: agent.system_prompt || undefined,
+        prompt: agent.prompt || undefined,
+        temperature: agent.temperature != null ? Number(agent.temperature) : 0.7,
+        order: idx + 1,
+      });
+    });
+  }
+
+  return { agents: selected, executionOrder: 'sequential' };
+}
+
+/**
+ * Resolve workflow from content type, or auto-attach default agents from DB
+ * so generation doesn't hang when the workflow editor was never configured.
+ */
+export async function resolveAgentWorkflow(contentType: {
+  name?: string;
+  prompting?: any;
+}): Promise<AgentWorkflow> {
+  const fromContentType = parseAgentWorkflowFromContentType(contentType);
+  if (fromContentType) return fromContentType;
+
+  const fallback = await loadDefaultAgentWorkflow();
+  if (!fallback.agents.length) {
+    throw new Error(
+      `No agents configured for content type "${contentType.name || 'unknown'}". ` +
+        `Please configure agents in the workflow editor (or seed the agents table).`
+    );
+  }
+  return fallback;
+}
+
 

@@ -66,8 +66,8 @@ const OutputContractSchema = z.object({
   }),
   globalDefaults: z.object({
     durationPerSceneSeconds: z.number().int().positive(),
-    allowedAspectRatios: z.array(z.enum(["9:16", "1:1", "16:9"])),
-    defaultAspectRatio: z.enum(["9:16", "1:1", "16:9"]),
+    allowedAspectRatios: z.array(z.enum(["9:16", "1:1", "16:9", "4:5", "3:4", "4:3", "3:2", "2:3"])),
+    defaultAspectRatio: z.enum(["9:16", "1:1", "16:9", "4:5", "3:4", "4:3", "3:2", "2:3"]),
     visualStylePreset: z.string(),
     defaultLanguage: z.string(),
   }),
@@ -83,6 +83,9 @@ const SceneGenerationPolicySchema = z.object({
     avoidRepetition: z.boolean().optional(),
     platformAwareOrdering: z.boolean().optional(),
   }).optional(),
+  // When set to 'fixed_carousel', scene count/content is derived deterministically
+  // from list-style inputs (1 hook + N items + 1 CTA) instead of an LLM-planned count.
+  mode: z.enum(["dynamic", "fixed_carousel"]).optional(),
 });
 
 // Inputs Contract Schema
@@ -95,6 +98,8 @@ const InputFieldSchema = z.object({
   maxItems: z.number().int().positive().optional(),
   maxLength: z.number().int().positive().optional(),
   helpText: z.string().optional(),
+  // For type "list": how multiple values are entered/split. Defaults to "comma".
+  listSeparator: z.enum(["comma", "newline"]).optional(),
 });
 
 const ConditionalLogicSchema = z.object({
@@ -137,6 +142,25 @@ const AgentWorkflowForPromptingSchema = z.object({
   executionOrder: z.enum(['sequential', 'parallel', 'custom']),
 }).optional();
 
+// Config for the deterministic "fixed carousel" scene generation mode.
+// Generic/reusable: any carousel-style content type can opt in by providing this block
+// plus sceneGenerationPolicy.mode = "fixed_carousel".
+const FixedCarouselConfigSchema = z.object({
+  // Input field keys (type "list") that make up one row per item, matched by index.
+  itemFieldKeys: z.array(z.string()),
+  // Optional key of a "list" field holding a logo/reference image URL per item row.
+  itemLogoFieldKey: z.string().optional(),
+  // Optional key of a "string" field holding a single reference image URL for the hook slide.
+  hookLogoFieldKey: z.string().optional(),
+  // Templates use {{fieldLabel}} placeholders resolved from input values / row data.
+  hookPromptTemplate: z.string(),
+  itemPromptTemplate: z.string(),
+  ctaPromptTemplate: z.string(),
+  // Rendered verbatim (with literal line breaks) into every slide's prompt.
+  footerText: z.string(),
+  maxItems: z.number().int().positive().optional(),
+}).optional();
+
 const PromptingSchema = z.object({
   systemPromptTemplate: z.string(),
   agents: z.union([
@@ -149,6 +173,7 @@ const PromptingSchema = z.object({
   ]).optional(),
   agentWorkflow: AgentWorkflowForPromptingSchema,
   safetyRules: SafetyRulesSchema,
+  fixedCarousel: FixedCarouselConfigSchema,
 }).passthrough();
 
 // Content Type Definition Schema

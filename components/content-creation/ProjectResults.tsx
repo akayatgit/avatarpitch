@@ -89,6 +89,7 @@ interface ProjectResultsProps {
     status?: 'processing' | 'completed' | 'failed'; // Project status
     assetRequirements?: AssetRequirements | null;
     assetUploads?: Record<string, string> | null;
+    caption?: string; // Ready-to-paste Instagram caption (fixed-carousel content types)
   };
   onStartNew: () => void;
 }
@@ -156,6 +157,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   const [editVideoImage, setEditVideoImage] = useState<GeneratedImage | null>(null);
   const [regeneratingSingleScene, setRegeneratingSingleScene] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [captionCopied, setCaptionCopied] = useState(false);
   const [assetRequirements, setAssetRequirements] = useState<AssetRequirements | null>(
     initialResult.assetRequirements || null
   );
@@ -201,13 +203,18 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   useEffect(() => {
     if (result.projectId) {
       // Check if we're in processing state (scenes not yet generated)
-      const isProcessing = (result as any).status === 'processing' || result.scenes.length === 0;
+      const pollStatus = (result as any).status as string | undefined;
+      const isProcessing =
+        pollStatus !== 'failed' &&
+        pollStatus !== 'cancelled' &&
+        pollStatus !== 'completed' &&
+        (pollStatus === 'processing' || pollStatus === 'pending' || result.scenes.length === 0);
       
       // Check if images are already being generated (if any scenes have imageUrls)
       const hasImages = result.scenes.some((scene: any) => scene.imageUrls && scene.imageUrls.length > 0);
       
-      // If processing or no images yet, assume generation might be in progress and start polling
-      if (isProcessing || hasImages || result.scenes.length === 0) {
+      // Only treat as in-progress when prompts are still generating or images already exist
+      if (isProcessing || hasImages) {
         setBackgroundGenerationStarted(true);
       }
       
@@ -240,6 +247,10 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
             if (data.assetUploads) {
               setAssetUploads(data.assetUploads);
+            }
+
+            if (data.caption && data.caption !== result.caption) {
+              setResult(prev => ({ ...prev, caption: data.caption }));
             }
             
             // Update scenes if we have any
@@ -841,6 +852,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   // Extract image generation settings from project data or use defaults
   const [imageGenerationSettings, setImageGenerationSettings] = useState<{
     referenceImageUrls: string[];
+    sceneReferenceImageUrls?: Record<string, string[]>;
     model: string;
     numImages: number;
     aspectRatio: string;
@@ -863,6 +875,9 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
           if (data.assetUploads) {
             setAssetUploads(data.assetUploads);
           }
+          if (data.caption) {
+            setResult(prev => ({ ...prev, caption: data.caption }));
+          }
         })
         .catch(err => {
           console.error('Error fetching image generation settings:', err);
@@ -876,14 +891,14 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
       return imageGenerationSettings;
     }
 
-    // Default settings
+    // Default settings — GPT Image 2 (prompt-only, no refs required)
     return {
       referenceImageUrls: [],
-      model: 'flux-schnell',
+      model: 'gpt-image-2',
       numImages: 1,
       aspectRatio: '9:16',
-      size: '4K',
-      generationMode: 'fast',
+      size: 'auto',
+      generationMode: 'sequential',
     };
   };
 
@@ -905,7 +920,12 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   };
 
   const buildSceneReferenceMap = (): Record<string, string[]> => {
-    if (!assetRequirements) return {};
+    // Content types that auto-wire reference images (e.g. fixed carousels with per-item
+    // logos) have no manual asset requirements — reuse the stored scene reference map
+    // instead of wiping it out on regeneration.
+    if (!assetRequirements?.scenes?.length) {
+      return getImageGenerationSettings().sceneReferenceImageUrls || {};
+    }
     const map: Record<string, string[]> = {};
     assetRequirements.scenes.forEach((scene) => {
       const urls = scene.assetIds
@@ -918,7 +938,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
   };
 
   const getMissingAssets = (): AssetRequirement[] => {
-    if (!assetRequirements) return [];
+    if (!assetRequirements?.assets?.length) return [];
     return assetRequirements.assets.filter((asset) => {
       const uploadValue = assetUploads[asset.id];
       return !uploadValue;
@@ -1078,8 +1098,8 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
       return;
     }
 
-    if (!assetRequirements || assetRequirements.assets.length === 0) {
-      alert('No asset requirements found for this project');
+    if (!result.scenes?.length) {
+      alert('Scenes are not ready yet');
       return;
     }
 
@@ -1095,7 +1115,8 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
           projectId: result.projectId,
           scenes: result.scenes,
           sceneReferenceImageUrls,
-          model: settings.model,
+          referenceImageUrls: settings.referenceImageUrls || [],
+          model: settings.model || 'gpt-image-2',
           numImages: settings.numImages,
           aspectRatio: settings.aspectRatio,
           size: settings.size,
@@ -1631,9 +1652,16 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
   // Check if we're still processing (scenes not yet generated)
   // Status can be 'pending' or we check if scenes are empty
-  const isProcessing = (result as any).status === 'pending' || result.scenes.length === 0;
+  const projectStatus = (result as any).status as string | undefined;
+  const isFailed = projectStatus === 'failed' || projectStatus === 'cancelled';
+  const isProcessing =
+    !isFailed &&
+    projectStatus !== 'completed' &&
+    (projectStatus === 'pending' || projectStatus === 'processing' || result.scenes.length === 0);
   const missingAssets = getMissingAssets();
-  const canStartImageGeneration = !!assetRequirements && missingAssets.length === 0;
+  // Allow image gen when scenes exist; refs are optional for gpt-image-2
+  const canStartImageGeneration =
+    result.scenes.length > 0 && (!assetRequirements || missingAssets.length === 0);
   
   // Check if all scenes have at least one image
   const allScenesHaveImages = result.scenes.length > 0 && result.scenes.every((scene: any) => 
@@ -1661,6 +1689,15 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {isFailed && (
+        <div className="bg-red-950/40 border border-red-800 rounded-xl p-4">
+          <p className="text-sm sm:text-base text-red-200 font-medium">Generation failed</p>
+          <p className="text-xs sm:text-sm text-red-300/80 mt-1">
+            {(result as any).errorMessage ||
+              'Scene generation stopped. Fix the content-type workflow (agents) and create a new project, or retry generation.'}
+          </p>
+        </div>
+      )}
       {isProcessing && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <div className="flex items-start gap-3">
@@ -1694,21 +1731,57 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
         </div>
       )}
 
-      {assetRequirements && (
+      {!isProcessing && result.caption && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm sm:text-base font-semibold text-white">Reference Assets Needed</h3>
+              <h3 className="text-sm sm:text-base font-semibold text-white">Instagram Caption</h3>
               <p className="text-xs text-gray-400 mt-1">
-                Upload each asset once. We reuse it across all scenes that need it.
+                Paste this into the post caption when you publish the carousel.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(result.caption || '');
+                setCaptionCopied(true);
+                setTimeout(() => setCaptionCopied(false), 2000);
+              }}
+              className="px-3 py-2 bg-[#D1FE17] text-black text-xs sm:text-sm font-medium rounded-lg hover:bg-[#B8E014] whitespace-nowrap"
+            >
+              {captionCopied ? 'Copied!' : 'Copy Caption'}
+            </button>
+          </div>
+          <pre className="mt-3 whitespace-pre-wrap break-words text-xs sm:text-sm text-gray-200 bg-gray-950 border border-gray-800 rounded-lg p-3 font-sans">
+            {result.caption}
+          </pre>
+        </div>
+      )}
+
+      {!isProcessing && result.scenes.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm sm:text-base font-semibold text-white">
+                {assetRequirements?.assets?.length
+                  ? 'Reference Assets Needed'
+                  : 'Image Generation'}
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">
+                {assetRequirements?.assets?.length
+                  ? 'Upload each asset once. We reuse it across all scenes that need it.'
+                  : 'No reference assets required. Uses GPT Image 2 from scene prompts.'}
               </p>
             </div>
             <button
               onClick={handleStartImageGenerationFromAssets}
-              disabled={!canStartImageGeneration || startingAssetGeneration || isProcessing}
+              disabled={!canStartImageGeneration || startingAssetGeneration || isProcessing || backgroundGenerationStarted}
               className="px-3 py-2 bg-[#D1FE17] text-black text-xs sm:text-sm font-medium rounded-lg hover:bg-[#B8E014] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {startingAssetGeneration ? 'Starting...' : 'Generate Images'}
+              {startingAssetGeneration
+                ? 'Starting...'
+                : backgroundGenerationStarted && !allScenesHaveImages
+                  ? 'Generating...'
+                  : 'Generate Images'}
             </button>
           </div>
 
@@ -1726,7 +1799,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
             </div>
           )}
 
-          {assetRequirements.assets.length === 0 ? (
+          {!assetRequirements?.assets?.length ? (
             <p className="text-[11px] text-gray-400 mt-4">
               No reference assets are required for these scenes.
             </p>
@@ -1990,12 +2063,16 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                         </div>
                       </div>
                     </>
-                  ) : (
-                      <div className="w-full h-full flex items-center justify-center bg-gray-800">
+                  ) : backgroundGenerationStarted ? (
+                    <div className="w-full h-full flex items-center justify-center bg-gray-800">
                       <div className="text-center">
                         <div className="w-8 h-8 border-4 border-[#D1FE17] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
                         <p className="text-[10px] text-gray-400">Generating...</p>
                       </div>
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gray-800">
+                      <p className="text-[10px] text-gray-500 px-2 text-center">No image yet</p>
                     </div>
                   )}
                   {/* Scene number badge */}

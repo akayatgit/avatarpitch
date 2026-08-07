@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { generateContent } from '@/lib/generation/contentGenerator';
 import { ContentTypeDefinition } from '@/lib/schemas';
-import { AgentWorkflow } from '@/lib/agents';
+import { resolveAgentWorkflow } from '@/lib/agents';
 import { extractDynamicInputs } from '@/lib/generation/dynamicInputExtractor';
 import { resetGlobalMemory } from '@/lib/generation/agenticFramework';
 import { planScenesDynamically } from '@/lib/generation/dynamicScenePlanner';
 import { runDynamicAgentWorkflowForScene } from '@/lib/generation/dynamicSceneWorkflow';
+import { generateFixedCarouselScenes } from '@/lib/generation/fixedCarouselGenerator';
 import { GeneratedOutputSchema } from '@/lib/schemas';
+import { processImagesInBackground } from '../generate-all-images/route';
 
 /**
  * Background project generation API
@@ -117,42 +119,6 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-/**
- * Helper function to get agent workflow from content type
- */
-function getAgentWorkflow(contentType: ContentTypeDefinition): AgentWorkflow | null {
-  let agentWorkflow: any = contentType.prompting?.agentWorkflow;
-  
-  if (!agentWorkflow && contentType.prompting?.agents) {
-    const agents = contentType.prompting.agents;
-    if (Array.isArray(agents) && agents.length > 0) {
-      const firstAgent = agents[0];
-      if (typeof firstAgent === 'object' && firstAgent.id) {
-        agentWorkflow = {
-          agents: agents,
-          executionOrder: 'sequential' as const,
-        };
-      } else if (typeof firstAgent === 'string') {
-        agentWorkflow = {
-          agents: (agents as string[]).map((agentName: string, idx: number) => ({
-            id: `agent-${idx + 1}`,
-            name: agentName,
-            role: agentName.toLowerCase().replace(/\s+/g, '_'),
-            order: idx + 1,
-          })),
-          executionOrder: 'sequential' as const,
-        };
-      }
-    }
-  }
-  
-  if (agentWorkflow && agentWorkflow.agents && agentWorkflow.agents.length > 0) {
-    return agentWorkflow as AgentWorkflow;
-  }
-  
-  return null;
 }
 
 /**
@@ -268,15 +234,24 @@ async function processProjectInBackground(
     // Reset global memory for new generation session
     resetGlobalMemory();
 
-    // Check if agent workflow exists
-    const agentWorkflow = getAgentWorkflow(contentType);
-    
-    if (!agentWorkflow) {
-      throw new Error(
-        `No agents configured for content type "${contentType.name}". ` +
-        `Please configure agents in the workflow editor before generating content.`
+    // Fixed-carousel content types (e.g. Job Openings Carousel) use a deterministic,
+    // config-driven generator instead of the LLM scene planner + multi-agent pipeline.
+    if (contentType.sceneGenerationPolicy?.mode === 'fixed_carousel') {
+      await processFixedCarouselProject(
+        projectId,
+        contentType,
+        inputs,
+        model,
+        numImages,
+        aspectRatio,
+        size,
+        generationMode
       );
+      return;
     }
+
+    // Check if agent workflow exists
+    const agentWorkflow = await resolveAgentWorkflow(contentType);
 
     // Extract dynamic inputs
     const dynamicInputs = extractDynamicInputs(contentType, inputs);
@@ -451,11 +426,125 @@ async function processProjectInBackground(
     console.log(`Project ${projectId} generation completed successfully`);
   } catch (error) {
     console.error('Error in background project generation:', error);
-    // Update status to failed
+    // Update status to failed and surface the message in the UI
     try {
+      const errorMessage = error instanceof Error ? error.message : 'Generation failed';
       await supabaseAdmin
         .from('content_creation_requests')
-        .update({ status: 'failed' })
+        .update({
+          status: 'failed',
+          generated_output: { format: 'storyboard_v1', scenes: [], errorMessage },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', projectId);
+    } catch (updateError) {
+      console.error('Error updating status to failed:', updateError);
+    }
+  }
+}
+
+/**
+ * Deterministic pipeline for "fixed_carousel" content types.
+ * Builds all scenes in one shot (1 hook + N items + 1 CTA), wires each item's logo as a
+ * per-scene reference image automatically, and immediately kicks off image generation —
+ * no LLM scene planning, no multi-agent debate, no manual "upload reference asset" step.
+ */
+async function processFixedCarouselProject(
+  projectId: string,
+  contentType: any,
+  inputs: any,
+  model: string | null,
+  numImages: number | null,
+  aspectRatio: string | null,
+  size: string | null,
+  generationMode: 'fast' | 'sequential' | null
+) {
+  try {
+    const dynamicInputs = extractDynamicInputs(contentType, inputs);
+    const { scenes, sceneReferenceImageUrls, caption } = await generateFixedCarouselScenes(
+      contentType,
+      dynamicInputs
+    );
+
+    const generationContext = {
+      inputs,
+      contentTypeName: contentType.name,
+      systemPrompt: contentType.prompting.systemPromptTemplate,
+    };
+
+    const scenesWithContext = scenes.map((scene: any) => ({
+      ...scene,
+      generationContext,
+    }));
+
+    // Fixed-carousel content types define their own ideal aspect ratio (matching the
+    // reference layout) rather than relying on the generic form's default (9:16 reels).
+    const contentTypeAspectRatio = contentType.outputContract?.globalDefaults?.defaultAspectRatio;
+
+    const effectiveModel = model || 'gpt-image-2';
+    const effectiveNumImages = numImages || 1;
+    const effectiveAspectRatio = contentTypeAspectRatio || aspectRatio || '3:4';
+    const effectiveSize = size || 'auto';
+    const effectiveGenerationMode: 'fast' | 'sequential' = generationMode || 'sequential';
+
+    const generatedOutput = {
+      format: 'storyboard_v1' as const,
+      scenes: scenesWithContext,
+      textOverlaySuggestions: [] as string[],
+      thumbnailPrompt: 'Thumbnail for the content',
+      caption,
+      imageGenerationSettings: {
+        referenceImageUrls: [],
+        sceneReferenceImageUrls,
+        model: effectiveModel,
+        numImages: effectiveNumImages,
+        aspectRatio: effectiveAspectRatio,
+        size: effectiveSize,
+        generationMode: effectiveGenerationMode,
+      },
+      // No manual reference-asset step for this content type — logos are wired automatically.
+      assetRequirements: null,
+      assetUploads: {},
+    };
+
+    await supabaseAdmin
+      .from('content_creation_requests')
+      .update({
+        generated_output: generatedOutput,
+        status: 'completed',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', projectId);
+
+    console.log(
+      `[generate-project] Fixed-carousel scenes saved for project ${projectId} (${scenesWithContext.length} slides). Starting automatic image generation...`
+    );
+
+    // Kick off image generation immediately — fire and forget, mirrors the dynamic flow.
+    processImagesInBackground(
+      projectId,
+      scenesWithContext,
+      [],
+      sceneReferenceImageUrls,
+      effectiveModel,
+      effectiveNumImages,
+      effectiveAspectRatio,
+      effectiveSize,
+      effectiveGenerationMode
+    ).catch((error) => {
+      console.error(`[generate-project] Auto image generation failed for project ${projectId}:`, error);
+    });
+  } catch (error) {
+    console.error('Error in fixed-carousel project generation:', error);
+    try {
+      const errorMessage = error instanceof Error ? error.message : 'Generation failed';
+      await supabaseAdmin
+        .from('content_creation_requests')
+        .update({
+          status: 'failed',
+          generated_output: { format: 'storyboard_v1', scenes: [], errorMessage },
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', projectId);
     } catch (updateError) {
       console.error('Error updating status to failed:', updateError);

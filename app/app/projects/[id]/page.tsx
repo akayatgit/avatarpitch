@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 import NetworkError from '@/components/NetworkError';
 import ProjectResultsClient from '@/components/content-creation/ProjectResultsClient';
-import { getCurrentUser } from '@/lib/session';
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';
@@ -20,11 +19,7 @@ export default async function ProjectDetailPage({
   const projectId = resolvedParams.id;
 
   try {
-    // Get current user
-    const user = await getCurrentUser();
-    
-    // Fetch from content_creation_requests
-    let query = supabaseAdmin
+    const { data: request, error: requestError } = await supabaseAdmin
       .from('content_creation_requests')
       .select(`
         id,
@@ -39,17 +34,8 @@ export default async function ProjectDetailPage({
           name
         )
       `)
-      .eq('id', projectId);
-
-    // If user is logged in, ensure they can only access their own projects
-    if (user?.id) {
-      query = query.eq('user_id', user.id);
-    } else {
-      // Guest users cannot access projects
-      notFound();
-    }
-
-    const { data: request, error: requestError } = await query.single();
+      .eq('id', projectId)
+      .single();
 
     if (requestError && isSupabaseNetworkError(requestError)) {
       return <NetworkError message="Unable to load project. Please check your internet connection." />;
@@ -94,6 +80,12 @@ export default async function ProjectDetailPage({
       videoUrl: request.video_url || '',
       templateName: contentType?.name || 'Unknown Template',
       projectId: request.id,
+      status: request.status || 'pending',
+      errorMessage: generatedOutput?.errorMessage || null,
+      assetRequirements: generatedOutput?.assetRequirements || null,
+      assetUploads: generatedOutput?.assetUploads || {},
+      imageGenerationSettings: generatedOutput?.imageGenerationSettings || null,
+      caption: generatedOutput?.caption || undefined,
     };
 
     return (
