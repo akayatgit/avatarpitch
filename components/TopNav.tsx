@@ -21,6 +21,9 @@ export default function TopNav() {
             <span className="text-xl font-bold text-white hidden sm:inline font-switzer group-hover:text-[#D1FE17] transition-colors duration-200">
               Hauloo
             </span>
+            <span className="text-[10px] font-medium text-gray-600 bg-gray-900 border border-gray-800 px-1.5 py-0.5 rounded-full hidden sm:inline">
+              v0.1.0
+            </span>
           </Link>
         </div>
       </div>
