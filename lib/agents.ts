@@ -140,7 +140,7 @@ export async function loadDefaultAgentWorkflow(): Promise<AgentWorkflow> {
     throw new Error(`Failed to load agents: ${error.message}`);
   }
 
-  const byRole = new Map((data || []).map((a: any) => [a.role, a]));
+  const byRole = new Map<string, any>((data || []).map((a: any): [string, any] => [a.role, a]));
   const selected: AgentDefinition[] = [];
 
   DEFAULT_WORKFLOW_ROLES.forEach((role, idx) => {

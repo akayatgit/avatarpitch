@@ -86,7 +86,7 @@ interface ProjectResultsProps {
     contentTypeName?: string;
     projectId?: string; // Project ID for saving images
     requestId?: string; // Content creation request ID
-    status?: 'processing' | 'completed' | 'failed'; // Project status
+    status?: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled' | string; // Project status
     assetRequirements?: AssetRequirements | null;
     assetUploads?: Record<string, string> | null;
     caption?: string; // Ready-to-paste Instagram caption (fixed-carousel content types)
@@ -295,10 +295,10 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
                 const sceneIndex = scene.index ?? (idx + 1);
                 const prevScene = result.scenes.find((s: any) => (s.index ?? result.scenes.indexOf(s) + 1) === sceneIndex);
                 if (!prevScene) return true; // New scene
-                const prevUrls = new Set(prevScene.imageUrls || []);
-                const newUrls = new Set(scene.imageUrls || []);
+                const prevUrls = new Set<string>(prevScene.imageUrls || []);
+                const newUrls = new Set<string>(scene.imageUrls || []);
                 // Check if URLs changed (new URLs added or count changed)
-                return newUrls.size !== prevUrls.size || Array.from(newUrls).some(url => !prevUrls.has(url));
+                return newUrls.size !== prevUrls.size || Array.from(newUrls).some((url: string) => !prevUrls.has(url));
               });
               
               if (scenesChanged || imagesChanged || JSON.stringify(scenes) !== JSON.stringify(result.scenes)) {
@@ -405,7 +405,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
       result.scenes.forEach((scene: any, idx: number) => {
         const sceneIndex = scene.index ?? (idx + 1);
-        const scenePrompt = buildComprehensiveScenePrompt(scene, result.scenes);
+        const scenePrompt = buildComprehensiveScenePrompt(scene);
         
         if (scenePrompt) {
           allPrompts.push(`=== Scene ${sceneIndex} ===\n${scenePrompt}\n`);
@@ -554,7 +554,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
     });
     const timelinePrompt = sceneForImage ? extractTimelineFromPrompt(sceneForImage.imagePrompt) : null;
     const sourcePrompt = timelinePrompt || (sceneForImage
-      ? buildComprehensiveScenePrompt(sceneForImage, result.scenes)
+      ? buildComprehensiveScenePrompt(sceneForImage)
       : '');
 
     setEditVideoPrompt(sourcePrompt || '');
@@ -584,7 +584,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
       });
       const timelinePrompt = sceneForImage ? extractTimelineFromPrompt(sceneForImage.imagePrompt) : null;
       const sourcePrompt = timelinePrompt || (sceneForImage
-        ? buildComprehensiveScenePrompt(sceneForImage, result.scenes)
+        ? buildComprehensiveScenePrompt(sceneForImage)
         : undefined);
       const aspectRatio = getImageGenerationSettings().aspectRatio;
       const trimmedPrompt = editVideoPrompt.trim();
@@ -705,7 +705,7 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
           });
           const timelinePrompt = sceneForImage ? extractTimelineFromPrompt(sceneForImage.imagePrompt) : null;
           const sourcePrompt = timelinePrompt || (sceneForImage
-            ? buildComprehensiveScenePrompt(sceneForImage, result.scenes)
+            ? buildComprehensiveScenePrompt(sceneForImage)
             : undefined);
           const nextSelectedImage = orderedSelectedImages[index + 1];
           const currentImageId = orderedSelectedWithIds[index]?.imageId;
@@ -893,12 +893,13 @@ export default function ProjectResults({ result: initialResult, onStartNew }: Pr
 
     // Default settings — GPT Image 2 (prompt-only, no refs required)
     return {
-      referenceImageUrls: [],
+      referenceImageUrls: [] as string[],
+      sceneReferenceImageUrls: undefined as Record<string, string[]> | undefined,
       model: 'gpt-image-2',
       numImages: 1,
       aspectRatio: '9:16',
       size: 'auto',
-      generationMode: 'sequential',
+      generationMode: 'sequential' as 'fast' | 'sequential',
     };
   };
 

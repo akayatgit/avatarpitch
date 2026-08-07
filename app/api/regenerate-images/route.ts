@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { processImagesInBackground } from '../generate-all-images/route';
+import { processImagesInBackground } from '@/lib/generation/imageGenerationRunner';
 
 /**
  * Regenerate images API

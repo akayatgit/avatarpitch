@@ -9,7 +9,7 @@ import { planScenesDynamically } from '@/lib/generation/dynamicScenePlanner';
 import { runDynamicAgentWorkflowForScene } from '@/lib/generation/dynamicSceneWorkflow';
 import { generateFixedCarouselScenes } from '@/lib/generation/fixedCarouselGenerator';
 import { GeneratedOutputSchema } from '@/lib/schemas';
-import { processImagesInBackground } from '../generate-all-images/route';
+import { processImagesInBackground } from '@/lib/generation/imageGenerationRunner';
 
 /**
  * Background project generation API

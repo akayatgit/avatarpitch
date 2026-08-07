@@ -241,7 +241,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const output = await replicate.run(modelId as `${string}/${string}`, { input });
+    const output: any = await replicate.run(modelId as `${string}/${string}`, { input });
 
     // Process output - handle various output formats
     // According to user's reference, output may have a .url() method directly
