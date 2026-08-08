@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Replicate from 'replicate';
-import { put } from '@vercel/blob';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { persistRemoteFileToStorage } from '@/lib/storage';
 import { STUDIO_FORMAT } from '@/lib/studio';
 
 export const runtime = 'nodejs';
@@ -184,26 +184,13 @@ async function convertImagePromptToVideoPrompt(sourcePrompt: string): Promise<st
   return typeof content === 'string' && content.trim().length > 0 ? content.trim() : sourcePrompt;
 }
 
-/** Copy a (short-lived) Replicate output URL to durable Vercel Blob storage. */
-async function persistVideoToBlob(videoUrl: string): Promise<string> {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return videoUrl;
-  }
-  try {
-    const response = await fetch(videoUrl);
-    if (!response.ok || !response.body) {
-      return videoUrl;
-    }
-    const blob = await put(`studio-videos/clip-${Date.now()}.mp4`, response.body, {
-      access: 'public',
-      contentType: response.headers.get('content-type') || 'video/mp4',
-      addRandomSuffix: true,
-    });
-    return blob.url;
-  } catch (error) {
-    console.error('Failed to persist video to blob storage:', error);
-    return videoUrl;
-  }
+/** Copy a (short-lived) Replicate output URL to durable Supabase Storage. */
+async function persistVideoToStorage(videoUrl: string): Promise<string> {
+  return persistRemoteFileToStorage(videoUrl, {
+    folder: 'studio/videos',
+    fileName: `clip-${Date.now()}.mp4`,
+    contentType: 'video/mp4',
+  });
 }
 
 /** Save a generated clip URL onto the matching scene of a studio project. */
@@ -347,7 +334,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Copy to durable storage and persist onto the studio project (when requested)
-    const durableVideoUrl = await persistVideoToBlob(videoUrl);
+    const durableVideoUrl = await persistVideoToStorage(videoUrl);
     if (typeof projectId === 'string' && typeof sceneId === 'string' && projectId && sceneId) {
       await persistVideoToStudioProject(projectId, sceneId, durableVideoUrl);
     }
