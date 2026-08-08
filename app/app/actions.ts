@@ -5,7 +5,6 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { ContentTypeDefinitionSchema, ContentCreationRequestSchema } from '@/lib/schemas';
-import { generateContent } from '@/lib/generation/contentGenerator';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 
 // Agent CRUD operations
