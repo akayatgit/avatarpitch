@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Replicate from 'replicate';
+import { put } from '@vercel/blob';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { STUDIO_FORMAT } from '@/lib/studio';
+
+export const runtime = 'nodejs';
+export const maxDuration = 300;
+export const dynamic = 'force-dynamic';
 
 const VIDEO_PROMPT_SYSTEM_PROMPT = `You are a professional prompt writer specialized in Seedance 1.5 Pro image-to-video (i2v) generation.
 
@@ -177,9 +184,73 @@ async function convertImagePromptToVideoPrompt(sourcePrompt: string): Promise<st
   return typeof content === 'string' && content.trim().length > 0 ? content.trim() : sourcePrompt;
 }
 
+/** Copy a (short-lived) Replicate output URL to durable Vercel Blob storage. */
+async function persistVideoToBlob(videoUrl: string): Promise<string> {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    return videoUrl;
+  }
+  try {
+    const response = await fetch(videoUrl);
+    if (!response.ok || !response.body) {
+      return videoUrl;
+    }
+    const blob = await put(`studio-videos/clip-${Date.now()}.mp4`, response.body, {
+      access: 'public',
+      contentType: response.headers.get('content-type') || 'video/mp4',
+      addRandomSuffix: true,
+    });
+    return blob.url;
+  } catch (error) {
+    console.error('Failed to persist video to blob storage:', error);
+    return videoUrl;
+  }
+}
+
+/** Save a generated clip URL onto the matching scene of a studio project. */
+async function persistVideoToStudioProject(projectId: string, sceneId: string, videoUrl: string) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('content_creation_requests')
+      .select('generated_output')
+      .eq('id', projectId)
+      .single();
+
+    if (error || !data) {
+      console.error('Could not load studio project to persist video:', error);
+      return;
+    }
+
+    const state =
+      typeof data.generated_output === 'string'
+        ? JSON.parse(data.generated_output)
+        : data.generated_output;
+
+    if (!state || state.format !== STUDIO_FORMAT || !Array.isArray(state.scenes)) {
+      return;
+    }
+
+    const scene = state.scenes.find((s: any) => s?.id === sceneId);
+    if (!scene) {
+      return;
+    }
+    scene.videoUrl = videoUrl;
+
+    const { error: updateError } = await supabaseAdmin
+      .from('content_creation_requests')
+      .update({ generated_output: state, status: 'completed' })
+      .eq('id', projectId);
+
+    if (updateError) {
+      console.error('Could not persist video URL to studio project:', updateError);
+    }
+  } catch (error) {
+    console.error('Error persisting video URL to studio project:', error);
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const { imageUrls, prompt, sourcePrompt, fps, duration, resolution, aspectRatio, cameraFixed, lastFrameImage, model } = await request.json();
+    const { imageUrls, prompt, sourcePrompt, fps, duration, resolution, aspectRatio, cameraFixed, lastFrameImage, model, generateAudio, projectId, sceneId } = await request.json();
 
     if (!process.env.REPLICATE_API_TOKEN) {
       return NextResponse.json({ error: 'REPLICATE_API_TOKEN not configured' }, { status: 500 });
@@ -218,7 +289,7 @@ export async function POST(request: NextRequest) {
         duration: veoDuration,
         resolution: videoResolution,
         aspect_ratio: videoAspectRatio,
-        generate_audio: false,
+        generate_audio: generateAudio === true,
         reference_images: [],
         image: inputImageUrl,
       };
@@ -275,9 +346,15 @@ export async function POST(request: NextRequest) {
       throw new Error('Unexpected output format from Replicate - no valid video URL found');
     }
 
+    // Copy to durable storage and persist onto the studio project (when requested)
+    const durableVideoUrl = await persistVideoToBlob(videoUrl);
+    if (typeof projectId === 'string' && typeof sceneId === 'string' && projectId && sceneId) {
+      await persistVideoToStudioProject(projectId, sceneId, durableVideoUrl);
+    }
+
     return NextResponse.json({
       success: true,
-      videoUrl: videoUrl,
+      videoUrl: durableVideoUrl,
     });
   } catch (error) {
     console.error('Video generation error:', error);
