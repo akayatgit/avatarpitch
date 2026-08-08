@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import Link from 'next/link';
 import NetworkError from '@/components/NetworkError';
 import { isSupabaseNetworkError } from '@/lib/networkError';
+import { ensureContentTypesSeeded } from '@/lib/seedData';
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,18 @@ export default async function Dashboard() {
     }
     
     if (!contentTypesError && contentTypesData) {
-      contentTypes = contentTypesData;
+      // Auto-seed built-in content types when the table is empty (first deploy or reset DB).
+      if (contentTypesData.length === 0) {
+        await ensureContentTypesSeeded();
+        // Re-fetch after seeding so the page shows content immediately
+        const { data: seeded } = await supabaseAdmin
+          .from('content_types')
+          .select('id, name, description, category, cover_image_url')
+          .order('name', { ascending: true });
+        contentTypes = seeded ?? [];
+      } else {
+        contentTypes = contentTypesData;
+      }
     }
   } catch (error: any) {
     if (isSupabaseNetworkError(error)) {
