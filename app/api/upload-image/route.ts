@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { put } from '@vercel/blob';
+import { buildUploadPath, uploadPublicFile } from '@/lib/storage';
 
 // Configure route to handle larger file uploads
 export const runtime = 'nodejs';
-export const maxDuration = 60; // 60 seconds max duration
+export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
@@ -22,13 +22,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
-    const blob = await put(file.name, file, {
-      access: 'public',
+    const arrayBuffer = await file.arrayBuffer();
+    const path = buildUploadPath('studio', file.name || 'image.jpg');
+    const url = await uploadPublicFile({
+      path,
+      body: Buffer.from(arrayBuffer),
       contentType: file.type || 'application/octet-stream',
-      addRandomSuffix: true,
     });
 
-    return NextResponse.json({ url: blob.url });
+    return NextResponse.json({ url });
   } catch (error) {
     console.error('Upload error:', error);
     return NextResponse.json(
@@ -37,4 +39,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
