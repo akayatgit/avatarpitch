@@ -173,3 +173,38 @@ Contains library files with logic for generating the final prompts and orchestra
 - Provides authenticated Supabase client with admin privileges
 - Used by all server-side database operations
 
+### studio.ts
+- Shared types and Zod schemas for the mobile Studio wizard (Tamil script → video)
+- Defines StudioState/StudioScene (persisted in content_creation_requests.generated_output with format 'studio_v1') and ParsedScriptSchema (LLM output contract)
+- Used by the studio API routes and components/studio/*
+
+## Studio (Tamil Script → Video Wizard)
+
+Mobile-first 4-step flow at `/app/studio` that replicates the AI content creation guide: script → scenes → reference/ingredient image → image-to-video clips.
+
+### components/studio/StudioWizard.tsx
+- Client orchestrator: step indicator, state management, debounced autosave to /api/studio/save, resume via ?projectId=
+- Recent studio projects list on a fresh start
+
+### components/studio/ScriptStep.tsx
+- Step 1: Tamil/Tanglish script textarea + aspect ratio picker (9:16 / 16:9 / 1:1)
+- Calls /api/studio/parse-script to break the script into scenes
+
+### components/studio/ScenesStep.tsx
+- Step 2: editable scene cards (Tanglish summary, Tamil dialogue, advanced English image/video prompts), scene deletion
+
+### components/studio/ReferenceStep.tsx
+- Step 3: reference/ingredient image via photo upload (/api/upload-image) or AI generation (/api/generate-image with gpt-image-2)
+- Quality checklist + regenerate loop before continuing
+
+### components/studio/VideoStep.tsx
+- Step 4: per-scene two-stage generation — scene frame (nano-banana with the reference image) then image-to-video (/api/generate-video, Seedance fast or Veo 3.1 with native audio for dialogue scenes)
+- Inline video preview, download, redo, and "Generate all" sequential run
+
+### Studio API routes
+- `app/api/studio/parse-script/route.ts` — OpenAI call that converts a Tamil script into structured scenes (summary, image prompt, i2v video prompt, dialogue), Zod-validated with one retry
+- `app/api/studio/save/route.ts` — upserts studio state into content_creation_requests (falls back to attaching a content type if content_type_id is NOT NULL)
+- `app/api/studio/[id]/route.ts` — loads a saved studio project state
+- `app/api/generate-video/route.ts` — extended with generateAudio flag (Veo native audio), durable Vercel Blob copy of output videos, and server-side persistence of clip URLs onto studio scenes
+- `app/api/generate-image/route.ts` — extended with a persist flag that copies generated images to Vercel Blob (used for reference images and scene frames that are reused as video inputs)
+

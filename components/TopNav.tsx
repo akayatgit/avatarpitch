@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { Menu, X, FolderOpen } from 'lucide-react';
+import { Menu, X, FolderOpen, Clapperboard } from 'lucide-react';
 import { useBanner } from '@/contexts/BannerContext';
 
 interface NavItem {
@@ -18,6 +18,7 @@ export default function TopNav() {
 
   const navigation: NavItem[] = [
     { name: 'Home', href: '/app' },
+    { name: 'Studio', href: '/app/studio' },
     { name: 'Projects', href: '/app/projects' },
     { name: 'Content Types', href: '/app/templates' },
     { name: 'Agents', href: '/app/agents' },
@@ -63,7 +64,15 @@ export default function TopNav() {
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
+              <Link
+                href="/app/studio"
+                className="flex items-center gap-2 px-4 py-2 bg-[#D1FE17] text-black rounded-lg text-sm font-bold hover:bg-[#B8E014] active:scale-95 transition-all duration-200 touch-manipulation"
+              >
+                <Clapperboard className="w-4 h-4" />
+                <span>Studio</span>
+              </Link>
+
               <button className="hidden md:flex items-center gap-2 px-4 py-2 bg-black border border-gray-800 rounded-lg text-white text-sm font-medium hover:bg-gray-900 transition-colors">
                 <FolderOpen className="w-4 h-4" />
                 <span>Asset library</span>
