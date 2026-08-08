@@ -10,13 +10,23 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 export default async function AgentsPage() {
-  const { data: agents, error } = await supabaseAdmin
-    .from('agents')
-    .select('id, name, role, system_prompt, prompt, temperature, created_at, updated_at')
-    .order('created_at', { ascending: false });
+  let agents: any[] = [];
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('agents')
+      .select('id, name, role, system_prompt, prompt, temperature, created_at, updated_at')
+      .order('created_at', { ascending: false });
 
-  if (error && isSupabaseNetworkError(error)) {
-    return <NetworkError message="Unable to load agents. Please check your internet connection." />;
+    if (error && isSupabaseNetworkError(error)) {
+      return <NetworkError message="Unable to load agents. Please check your internet connection." />;
+    }
+    if (!error && data) {
+      agents = data;
+    }
+  } catch (error: any) {
+    if (isSupabaseNetworkError(error)) {
+      return <NetworkError message="Unable to load agents. Please check your internet connection." />;
+    }
   }
 
   return (
@@ -32,11 +42,11 @@ export default async function AgentsPage() {
 
       <div className="mb-6">
         <h2 className="text-lg sm:text-xl font-semibold text-white mb-4">All Agents</h2>
-        <AgentList
-          agents={agents || []}
-          updateAgent={updateAgent}
-          deleteAgent={deleteAgent}
-        />
+      <AgentList
+        agents={agents}
+        updateAgent={updateAgent}
+        deleteAgent={deleteAgent}
+      />
       </div>
     </div>
   );
