@@ -178,6 +178,12 @@ Contains library files with logic for generating the final prompts and orchestra
 - Defines StudioState/StudioScene (persisted in content_creation_requests.generated_output with format 'studio_v1') and ParsedScriptSchema (LLM output contract)
 - Used by the studio API routes and components/studio/*
 
+### storage.ts
+- Supabase Storage helper for durable public file hosting (replaces Vercel Blob)
+- Ensures a public `uploads` bucket exists, uploads files, and returns public HTTPS URLs
+- `persistRemoteFileToStorage` re-hosts short-lived Replicate outputs (images/videos)
+- Used by `/api/upload-image`, `/api/generate-image` (persist flag), and `/api/generate-video`
+
 ## Studio (Tamil Script → Video Wizard)
 
 Mobile-first 4-step flow at `/app/studio` that replicates the AI content creation guide: script → scenes → reference/ingredient image → image-to-video clips.
@@ -205,6 +211,8 @@ Mobile-first 4-step flow at `/app/studio` that replicates the AI content creatio
 - `app/api/studio/parse-script/route.ts` — OpenAI call that converts a Tamil script into structured scenes (summary, image prompt, i2v video prompt, dialogue), Zod-validated with one retry
 - `app/api/studio/save/route.ts` — upserts studio state into content_creation_requests (falls back to attaching a content type if content_type_id is NOT NULL)
 - `app/api/studio/[id]/route.ts` — loads a saved studio project state
-- `app/api/generate-video/route.ts` — extended with generateAudio flag (Veo native audio), durable Vercel Blob copy of output videos, and server-side persistence of clip URLs onto studio scenes
-- `app/api/generate-image/route.ts` — extended with a persist flag that copies generated images to Vercel Blob (used for reference images and scene frames that are reused as video inputs)
+- `app/api/generate-video/route.ts` — extended with generateAudio flag (Veo native audio), durable Supabase Storage copy of output videos, and server-side persistence of clip URLs onto studio scenes
+- `app/api/generate-image/route.ts` — extended with a persist flag that copies generated images to Supabase Storage (used for reference images and scene frames that are reused as video inputs)
+- `app/api/upload-image/route.ts` — multipart image upload to Supabase Storage (`uploads` bucket); same `{ url }` response shape for Studio, templates, and project assets
+- `migrations/create_uploads_storage_bucket.sql` — durable SQL setup for the public uploads bucket + read/write policies
 

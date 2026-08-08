@@ -35,21 +35,21 @@ SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-4o-mini
+REPLICATE_API_TOKEN=your_replicate_api_token
 ```
 
-**Note:** `OPENAI_MODEL` is optional and defaults to `gpt-4o-mini`.
+**Notes:**
+- `OPENAI_MODEL` is optional and defaults to `gpt-4o-mini`.
+- Image/video uploads use **Supabase Storage** (public `uploads` bucket). No `BLOB_READ_WRITE_TOKEN` / Vercel Blob is required.
 
 ### 3. Database Setup
 
-Run the SQL migration in your Supabase SQL editor:
+Run the SQL migrations in your Supabase SQL editor:
 
 1. Open your Supabase project dashboard
 2. Go to SQL Editor
-3. Copy and paste the contents of `supabase.sql`
-4. Run the migration
-
-This will create:
-- `templates` table with 3 seeded templates
+3. Run the SQL files under `migrations/` (including `create_uploads_storage_bucket.sql` for the public uploads bucket)
+4. The Studio upload helper also auto-creates the `uploads` bucket on first use if it is missing
 
 ### 4. Run Development Server
 

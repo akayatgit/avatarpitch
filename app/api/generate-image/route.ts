@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Replicate from 'replicate';
-import { put } from '@vercel/blob';
+import { persistRemoteFileToStorage } from '@/lib/storage';
 import {
   getModelConfig,
   ImageGenerationModel,
@@ -10,26 +10,13 @@ import {
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-/** Copy a (short-lived) Replicate output URL to durable Vercel Blob storage. */
-async function persistImageToBlob(imageUrl: string): Promise<string> {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return imageUrl;
-  }
-  try {
-    const response = await fetch(imageUrl);
-    if (!response.ok || !response.body) {
-      return imageUrl;
-    }
-    const blob = await put(`studio-images/image-${Date.now()}`, response.body, {
-      access: 'public',
-      contentType: response.headers.get('content-type') || 'image/png',
-      addRandomSuffix: true,
-    });
-    return blob.url;
-  } catch (error) {
-    console.error('Failed to persist image to blob storage:', error);
-    return imageUrl;
-  }
+/** Copy a (short-lived) Replicate output URL to durable Supabase Storage. */
+async function persistImageToStorage(imageUrl: string): Promise<string> {
+  return persistRemoteFileToStorage(imageUrl, {
+    folder: 'studio/images',
+    fileName: `image-${Date.now()}.png`,
+    contentType: 'image/png',
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -73,7 +60,7 @@ export async function POST(request: NextRequest) {
 
     let imageOutputUrls = results.map(r => r.url);
     if (persist === true) {
-      imageOutputUrls = await Promise.all(imageOutputUrls.map(persistImageToBlob));
+      imageOutputUrls = await Promise.all(imageOutputUrls.map(persistImageToStorage));
     }
 
     return NextResponse.json({ 
