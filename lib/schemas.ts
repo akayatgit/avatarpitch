@@ -152,6 +152,9 @@ const FixedCarouselConfigSchema = z.object({
   itemLogoFieldKey: z.string().optional(),
   // Optional key of a "string" field holding a single reference image URL for the hook slide.
   hookLogoFieldKey: z.string().optional(),
+  // When true, all per-item logo/image URLs are collected and passed as reference images
+  // for the hook slide (e.g. show every face together on slide 1).
+  hookUseAllItemImages: z.boolean().optional(),
   // Templates use {{fieldLabel}} placeholders resolved from input values / row data.
   hookPromptTemplate: z.string(),
   itemPromptTemplate: z.string(),

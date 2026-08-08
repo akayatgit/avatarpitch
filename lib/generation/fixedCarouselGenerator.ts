@@ -96,31 +96,14 @@ export async function generateFixedCarouselScenes(
   const scenes: any[] = [];
   const sceneReferenceImageUrls: Record<string, string[]> = {};
 
-  // --- Scene 1: Hook ---
-  const hookLogoLabel = config.hookLogoFieldKey ? getFieldLabel(contentType, config.hookLogoFieldKey) : null;
-  const hookLogoUrl = hookLogoLabel ? dynamicInputs[hookLogoLabel] : null;
-  const hookPrompt = fillTemplate(config.hookPromptTemplate, { ...scalarData, footer });
-  scenes.push({
-    id: 'scene-1',
-    index: 1,
-    purpose: 'Hook slide',
-    imagePrompt: hookPrompt,
-    negativePrompt: '',
-    camera: {},
-    environment: {},
-    onScreenText: {},
-    compositionNotes: '',
-  });
-  if (isMeaningful(hookLogoUrl)) {
-    sceneReferenceImageUrls['1'] = [String(hookLogoUrl).trim()];
-  }
-
-  // --- Scenes 2..N+1: one per item ---
+  // --- Scenes 2..N+1: one per item (built first so hook can harvest all image refs) ---
   const itemLogoLabel = config.itemLogoFieldKey ? getFieldLabel(contentType, config.itemLogoFieldKey) : null;
+  const allItemImageUrls: string[] = [];
+  const itemScenes: any[] = [];
   rows.forEach((row, idx) => {
     const sceneIndex = idx + 2;
     const itemPrompt = fillTemplate(config.itemPromptTemplate, { ...row, footer });
-    scenes.push({
+    itemScenes.push({
       id: `scene-${sceneIndex}`,
       index: sceneIndex,
       purpose: `Item slide: ${row[primaryLabel]}`,
@@ -133,9 +116,38 @@ export async function generateFixedCarouselScenes(
     });
     const logoUrl = itemLogoLabel ? row[itemLogoLabel] : null;
     if (isMeaningful(logoUrl)) {
-      sceneReferenceImageUrls[String(sceneIndex)] = [String(logoUrl).trim()];
+      const urlStr = String(logoUrl).trim();
+      sceneReferenceImageUrls[String(sceneIndex)] = [urlStr];
+      allItemImageUrls.push(urlStr);
     }
   });
+
+  // --- Scene 1: Hook ---
+  const hookPrompt = fillTemplate(config.hookPromptTemplate, { ...scalarData, footer });
+  scenes.push({
+    id: 'scene-1',
+    index: 1,
+    purpose: 'Hook slide',
+    imagePrompt: hookPrompt,
+    negativePrompt: '',
+    camera: {},
+    environment: {},
+    onScreenText: {},
+    compositionNotes: '',
+  });
+  // hookUseAllItemImages: pass every item image as reference for the hook (e.g. group portrait)
+  if (config.hookUseAllItemImages && allItemImageUrls.length > 0) {
+    sceneReferenceImageUrls['1'] = allItemImageUrls;
+  } else {
+    const hookLogoLabel = config.hookLogoFieldKey ? getFieldLabel(contentType, config.hookLogoFieldKey) : null;
+    const hookLogoUrl = hookLogoLabel ? dynamicInputs[hookLogoLabel] : null;
+    if (isMeaningful(hookLogoUrl)) {
+      sceneReferenceImageUrls['1'] = [String(hookLogoUrl).trim()];
+    }
+  }
+
+  // Push item scenes after hook
+  scenes.push(...itemScenes);
 
   // --- Final scene: CTA ---
   const ctaIndex = rows.length + 2;
