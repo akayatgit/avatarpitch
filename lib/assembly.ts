@@ -20,6 +20,13 @@ export const DEFAULT_REMOVAL_PROMPT = `Remove the entire building structure, all
 Keep everything else exactly as it is: identical camera angle, identical field of view, identical crop, identical framing. Keep the road, curb lines, sidewalk pavement, surrounding background trees, and lighting completely unchanged. Fill the cleared area with clean matching ground pavement in the same materials already visible. Same lighting, same shadow direction, same time of day.`;
 
 /**
+ * Fixed negative block for the reveal animation (guide Prompt 2). Kept separate so the
+ * AI prompt-tailoring pass can rewrite the property-specific body while this part is
+ * always appended verbatim server-side.
+ */
+export const REVEAL_NEGATIVE_PROMPT = `Negative: changing camera angle, changing perspective, new viewpoint, reframing, re-angling, rotating camera, orbiting, arc shot, crane move, changing camera height, changing focal length, changing field of view, lens distortion, wide angle shift, perspective warp, shifting vanishing point, tilting horizon, revealing unseen areas of the lot, added structural elements, invented architecture, new props, restyled facade, changed building colour, changed materials, components not present in the reference, interpolation between reference images, blending two images, image morph, cross-fade between frames, gradual transformation, morphing, object morphing, shape shifting, transforming, geometry changing, slow growth, gradual scaling, growing from zero, unfolding, assembling from parts, dissolving in, fade in, fade out, cross dissolve, opacity transition, ghosting, double exposure, translucent objects, glowing particles, light shimmer, warping, melting, stretching, squashing, elastic wobble, flying across frame, floating elements, people, text, watermark, redrawn ground, changing ground layout, altered lighting direction, camera push in, dolly, zoom, whip pan.`;
+
+/**
  * Prompt 2 template from the guide — "Sequential Construction Animation".
  * Reference 1 (empty plot) is the video start frame, Reference 2 (original photo)
  * is the end frame; the building assembles itself in discrete grouped arrivals.
@@ -51,7 +58,16 @@ TIMELINE:
 
 Photorealistic architectural exterior photography, natural daylight, modern building construction, no people.
 
-Negative: changing camera angle, changing perspective, new viewpoint, reframing, re-angling, rotating camera, orbiting, arc shot, crane move, changing camera height, changing focal length, changing field of view, lens distortion, wide angle shift, perspective warp, shifting vanishing point, tilting horizon, revealing unseen areas of the lot, added structural elements, invented architecture, new props, restyled facade, changed building colour, changed materials, components not present in the reference, interpolation between reference images, blending two images, image morph, cross-fade between frames, gradual transformation, morphing, object morphing, shape shifting, transforming, geometry changing, slow growth, gradual scaling, growing from zero, unfolding, assembling from parts, dissolving in, fade in, fade out, cross dissolve, opacity transition, ghosting, double exposure, translucent objects, glowing particles, light shimmer, warping, melting, stretching, squashing, elastic wobble, flying across frame, floating elements, people, text, watermark, redrawn ground, changing ground layout, altered lighting direction, camera push in, dolly, zoom, whip pan.`;
+${REVEAL_NEGATIVE_PROMPT}`;
+
+/** Shape the tailor-prompts vision call must return (negative block is appended server-side). */
+export const TailoredPromptsSchema = z.object({
+  buildingSummary: z.string().min(1),
+  removalPrompt: z.string().min(40),
+  revealPrompt: z.string().min(200),
+});
+
+export type TailoredPrompts = z.infer<typeof TailoredPromptsSchema>;
 
 /** One building slot in an assembly project. */
 export const AssemblyBuildingSchema = z.object({
@@ -80,6 +96,8 @@ export const AssemblyStateSchema = z.object({
   title: z.string(),
   aspectRatio: z.enum(ASSEMBLY_ASPECT_RATIOS),
   buildings: z.array(AssemblyBuildingSchema).min(1).max(MAX_BUILDINGS),
+  /** Stitched showcase video (all reveals in sequence, optional title card). */
+  finalVideoUrl: z.string().nullable().default(null),
   step: z.number().int().min(1).max(3),
 });
 
@@ -106,6 +124,7 @@ export function createEmptyAssemblyState(): AssemblyState {
     title: '',
     aspectRatio: '16:9',
     buildings: [createAssemblyBuilding(0)],
+    finalVideoUrl: null,
     step: 1,
   };
 }

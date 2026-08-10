@@ -1,32 +1,142 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ChevronDown, Clapperboard, Download, Loader2, RefreshCw } from 'lucide-react';
-import type { AssemblyBuilding, AssemblyState, AssemblyVideoModel } from '@/lib/assembly';
+import { CheckSquare, ChevronDown, Clapperboard, Download, Film, Loader2, RefreshCw, Square, Wand2 } from 'lucide-react';
+import type {
+  AssemblyAspectRatio,
+  AssemblyBuilding,
+  AssemblyState,
+  AssemblyVideoModel,
+} from '@/lib/assembly';
 
 interface RevealVideoStepProps {
   state: AssemblyState;
   projectId: string | null;
+  updateState: (patch: Partial<AssemblyState>) => void;
   updateBuilding: (buildingId: string, patch: Partial<AssemblyBuilding>) => void;
   goToStep: (step: number) => void;
+}
+
+const CARD_DIMENSIONS: Record<AssemblyAspectRatio, [number, number]> = {
+  '16:9': [1280, 720],
+  '9:16': [720, 1280],
+  '1:1': [720, 720],
+};
+
+/** Render the title card in the browser (canvas has real fonts, unlike serverless ffmpeg). */
+function renderTitleCard(title: string, aspectRatio: AssemblyAspectRatio): Promise<Blob> {
+  const [width, height] = CARD_DIMENSIONS[aspectRatio];
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return Promise.reject(new Error('Canvas not supported'));
+
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, width, height);
+
+  // Word-wrap the title to at most 80% of the width
+  const fontSize = Math.round(Math.min(width, height) * 0.07);
+  ctx.font = `bold ${fontSize}px Switzer, system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const maxWidth = width * 0.8;
+  const words = title.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (ctx.measureText(candidate).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  }
+  if (line) lines.push(line);
+
+  const lineHeight = fontSize * 1.25;
+  const blockHeight = lines.length * lineHeight;
+  const firstLineY = height / 2 - blockHeight / 2 + lineHeight / 2;
+
+  // Brand accent bar above the title
+  ctx.fillStyle = '#D1FE17';
+  const barWidth = Math.round(width * 0.08);
+  ctx.fillRect(width / 2 - barWidth / 2, firstLineY - lineHeight * 1.2, barWidth, Math.max(4, Math.round(fontSize * 0.12)));
+
+  ctx.fillStyle = '#FFFFFF';
+  lines.forEach((textLine, index) => {
+    ctx.fillText(textLine, width / 2, firstLineY + index * lineHeight);
+  });
+
+  ctx.fillStyle = '#9CA3AF';
+  ctx.font = `${Math.round(fontSize * 0.45)}px Switzer, system-ui, sans-serif`;
+  ctx.fillText('CONSTRUCTION REVEAL', width / 2, firstLineY + blockHeight + lineHeight * 0.4);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error('Failed to render the title card'))),
+      'image/png'
+    );
+  });
 }
 
 export default function RevealVideoStep({
   state,
   projectId,
+  updateState,
   updateBuilding,
   goToStep,
 }: RevealVideoStepProps) {
   const [busyIds, setBusyIds] = useState<Record<string, boolean>>({});
+  const [tailoringIds, setTailoringIds] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [promptOpenIds, setPromptOpenIds] = useState<Record<string, boolean>>({});
   const [runningAll, setRunningAll] = useState(false);
+  const [stitching, setStitching] = useState(false);
+  const [stitchError, setStitchError] = useState<string | null>(null);
+  const [includeTitleCard, setIncludeTitleCard] = useState(true);
 
   // Always read the freshest buildings (props go stale inside the generate-all loop)
   const buildingsRef = useRef(state.buildings);
   buildingsRef.current = state.buildings;
 
-  const anyRunning = runningAll || Object.values(busyIds).some(Boolean);
+  const anyRunning =
+    runningAll ||
+    stitching ||
+    Object.values(busyIds).some(Boolean) ||
+    Object.values(tailoringIds).some(Boolean);
+
+  const tailorRevealPrompt = async (buildingId: string) => {
+    const building = buildingsRef.current.find((b) => b.id === buildingId);
+    if (!building?.originalImageUrl) return;
+
+    setTailoringIds((prev) => ({ ...prev, [buildingId]: true }));
+    setErrors((prev) => ({ ...prev, [buildingId]: '' }));
+    try {
+      const response = await fetch('/api/assembly/tailor-prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrl: building.originalImageUrl,
+          buildingName: building.name,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.revealPrompt) {
+        throw new Error(data?.error || 'Failed to tailor the prompt');
+      }
+      updateBuilding(buildingId, { videoPrompt: data.revealPrompt });
+      setPromptOpenIds((prev) => ({ ...prev, [buildingId]: true }));
+    } catch (err) {
+      setErrors((prev) => ({
+        ...prev,
+        [buildingId]: err instanceof Error ? err.message : 'Failed to tailor the prompt',
+      }));
+    } finally {
+      setTailoringIds((prev) => ({ ...prev, [buildingId]: false }));
+    }
+  };
 
   const generateVideo = async (buildingId: string) => {
     const building = buildingsRef.current.find((b) => b.id === buildingId);
@@ -34,6 +144,10 @@ export default function RevealVideoStep({
 
     setBusyIds((prev) => ({ ...prev, [buildingId]: true }));
     setErrors((prev) => ({ ...prev, [buildingId]: '' }));
+    // Any new/redone clip invalidates a previously stitched showcase
+    if (state.finalVideoUrl) {
+      updateState({ finalVideoUrl: null });
+    }
     try {
       const response = await fetch('/api/generate-video', {
         method: 'POST',
@@ -86,6 +200,57 @@ export default function RevealVideoStep({
     (building) => building.originalImageUrl && building.emptyPlotUrl
   );
   const doneCount = buildings.filter((building) => Boolean(building.videoUrl)).length;
+  const allDone = doneCount === buildings.length && buildings.length > 0;
+
+  const stitchShowcase = async () => {
+    const videoUrls = buildingsRef.current
+      .map((building) => building.videoUrl)
+      .filter((url): url is string => Boolean(url));
+    if (videoUrls.length === 0) return;
+
+    setStitching(true);
+    setStitchError(null);
+    try {
+      let titleCardUrl: string | null = null;
+      if (includeTitleCard) {
+        const blob = await renderTitleCard(
+          state.title.trim() || 'Building Assembly',
+          state.aspectRatio
+        );
+        const formData = new FormData();
+        formData.append('images', new File([blob], 'title-card.png', { type: 'image/png' }));
+        const uploadResponse = await fetch('/api/upload-image', {
+          method: 'POST',
+          body: formData,
+        });
+        const uploadData = await uploadResponse.json();
+        if (!uploadResponse.ok || !uploadData?.url) {
+          throw new Error(uploadData?.error || 'Title card upload failed');
+        }
+        titleCardUrl = uploadData.url;
+      }
+
+      const response = await fetch('/api/assembly/stitch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoUrls,
+          titleCardUrl,
+          aspectRatio: state.aspectRatio,
+          projectId,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.finalVideoUrl) {
+        throw new Error(data?.error || 'Failed to stitch the showcase video');
+      }
+      updateState({ finalVideoUrl: data.finalVideoUrl });
+    } catch (err) {
+      setStitchError(err instanceof Error ? err.message : 'Failed to stitch the showcase video');
+    } finally {
+      setStitching(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -117,6 +282,7 @@ export default function RevealVideoStep({
 
       {buildings.map((building, index) => {
         const isBusy = Boolean(busyIds[building.id]);
+        const isTailoring = Boolean(tailoringIds[building.id]);
         const error = errors[building.id];
         const isPromptOpen = Boolean(promptOpenIds[building.id]);
 
@@ -136,7 +302,7 @@ export default function RevealVideoStep({
             <div className="px-4 pb-2 flex items-center gap-2">
               {(
                 [
-                  { value: 'seedance-1-pro-fast', label: 'Fast' },
+                  { value: 'seedance-1-pro-fast', label: 'Seedance Pro' },
                   { value: 'veo-3.1', label: 'Veo 3.1' },
                 ] as Array<{ value: AssemblyVideoModel; label: string }>
               ).map((option) => (
@@ -156,20 +322,35 @@ export default function RevealVideoStep({
               ))}
             </div>
 
-            {/* Reveal prompt (editable) */}
+            {/* Reveal prompt (editable) + AI tailoring */}
             <div className="px-4 pb-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setPromptOpenIds((prev) => ({ ...prev, [building.id]: !isPromptOpen }))
-                }
-                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-200 touch-manipulation"
-              >
-                <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform ${isPromptOpen ? 'rotate-180' : ''}`}
-                />
-                Reveal animation prompt
-              </button>
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPromptOpenIds((prev) => ({ ...prev, [building.id]: !isPromptOpen }))
+                  }
+                  className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-200 touch-manipulation"
+                >
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${isPromptOpen ? 'rotate-180' : ''}`}
+                  />
+                  Reveal animation prompt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => tailorRevealPrompt(building.id)}
+                  disabled={anyRunning}
+                  className="flex items-center gap-1.5 text-[11px] font-semibold text-[#D1FE17] border border-[#D1FE17]/40 rounded-full px-3 py-1.5 hover:bg-[#D1FE17]/10 disabled:opacity-40 transition-colors touch-manipulation"
+                >
+                  {isTailoring ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Wand2 className="w-3.5 h-3.5" />
+                  )}
+                  {isTailoring ? 'Analyzing photo…' : 'Tailor with AI'}
+                </button>
+              </div>
               {isPromptOpen && (
                 <textarea
                   value={building.videoPrompt}
@@ -267,6 +448,93 @@ export default function RevealVideoStep({
           </div>
         );
       })}
+
+      {/* Final showcase — stitch all reveals into one video */}
+      {allDone && (
+        <div className="bg-gray-900 border border-[#D1FE17]/30 rounded-xl p-4 space-y-3">
+          <p className="flex items-center gap-2 text-sm font-semibold text-white">
+            <Film className="w-4 h-4 text-[#D1FE17]" />
+            Final showcase
+          </p>
+
+          {state.finalVideoUrl ? (
+            <div className="space-y-2">
+              <video
+                src={state.finalVideoUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="w-full rounded-lg bg-black max-h-[420px]"
+              />
+              <div className="flex gap-2">
+                <a
+                  href={state.finalVideoUrl}
+                  download={`${(state.title.trim() || 'building-assembly').replace(/\s+/g, '-').toLowerCase()}-showcase.mp4`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm py-2.5 min-h-[44px] touch-manipulation"
+                >
+                  <Download className="w-4 h-4" />
+                  Save showcase
+                </a>
+                <button
+                  type="button"
+                  disabled={anyRunning}
+                  onClick={stitchShowcase}
+                  className="btn-secondary flex items-center justify-center gap-2 text-sm py-2.5 px-4 min-h-[44px] disabled:opacity-40 touch-manipulation"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Restitch
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-xs text-gray-400">
+                Combine {buildings.length === 1 ? 'the reveal' : `all ${buildings.length} reveals`}{' '}
+                into one downloadable video, in the order of your buildings.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setIncludeTitleCard((prev) => !prev)}
+                disabled={stitching}
+                className="flex items-center gap-2 text-xs text-gray-300 touch-manipulation"
+              >
+                {includeTitleCard ? (
+                  <CheckSquare className="w-4 h-4 text-[#D1FE17]" />
+                ) : (
+                  <Square className="w-4 h-4 text-gray-500" />
+                )}
+                Open with a title card ({state.title.trim() || 'Building Assembly'})
+              </button>
+
+              {stitching ? (
+                <div className="flex items-center gap-2 text-sm text-gray-300 bg-black/40 border border-gray-800 rounded-lg px-4 py-3">
+                  <Loader2 className="w-4 h-4 animate-spin text-[#D1FE17]" />
+                  Stitching the showcase (1-2 min)…
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={anyRunning}
+                  onClick={stitchShowcase}
+                  className="btn-primary w-full flex items-center justify-center gap-2 text-sm py-2.5 min-h-[48px] disabled:opacity-40 touch-manipulation"
+                >
+                  <Film className="w-4 h-4" />
+                  Stitch showcase video
+                </button>
+              )}
+
+              {stitchError && (
+                <p className="text-xs text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">
+                  {stitchError}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <button
         type="button"
