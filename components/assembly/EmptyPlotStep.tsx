@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Eraser, Loader2, RefreshCw } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Eraser, Loader2, RefreshCw, Wand2 } from 'lucide-react';
 import type { AssemblyBuilding, AssemblyState } from '@/lib/assembly';
 
 interface EmptyPlotStepProps {
@@ -19,6 +19,7 @@ const PLOT_CHECKLIST = [
 
 export default function EmptyPlotStep({ state, updateBuilding, goToStep }: EmptyPlotStepProps) {
   const [busyIds, setBusyIds] = useState<Record<string, boolean>>({});
+  const [tailoringIds, setTailoringIds] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [promptOpenIds, setPromptOpenIds] = useState<Record<string, boolean>>({});
   const [runningAll, setRunningAll] = useState(false);
@@ -27,7 +28,49 @@ export default function EmptyPlotStep({ state, updateBuilding, goToStep }: Empty
   const buildingsRef = useRef(state.buildings);
   buildingsRef.current = state.buildings;
 
-  const anyRunning = runningAll || Object.values(busyIds).some(Boolean);
+  const anyRunning =
+    runningAll ||
+    Object.values(busyIds).some(Boolean) ||
+    Object.values(tailoringIds).some(Boolean);
+
+  const tailorPrompts = async (buildingId: string) => {
+    const building = buildingsRef.current.find((b) => b.id === buildingId);
+    if (!building?.originalImageUrl) return;
+
+    setTailoringIds((prev) => ({ ...prev, [buildingId]: true }));
+    setErrors((prev) => ({ ...prev, [buildingId]: '' }));
+    try {
+      const response = await fetch('/api/assembly/tailor-prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageUrl: building.originalImageUrl,
+          buildingName: building.name,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.removalPrompt || !data?.revealPrompt) {
+        throw new Error(data?.error || 'Failed to tailor the prompts');
+      }
+      const patch: Partial<AssemblyBuilding> = {
+        removalPrompt: data.removalPrompt,
+        videoPrompt: data.revealPrompt,
+      };
+      // Replace placeholder names ("Building N") with the AI's property summary
+      if (/^Building \d+$/.test(building.name.trim()) && data.buildingSummary) {
+        patch.name = data.buildingSummary;
+      }
+      updateBuilding(buildingId, patch);
+      setPromptOpenIds((prev) => ({ ...prev, [buildingId]: true }));
+    } catch (err) {
+      setErrors((prev) => ({
+        ...prev,
+        [buildingId]: err instanceof Error ? err.message : 'Failed to tailor the prompts',
+      }));
+    } finally {
+      setTailoringIds((prev) => ({ ...prev, [buildingId]: false }));
+    }
+  };
 
   const generatePlot = async (buildingId: string) => {
     const building = buildingsRef.current.find((b) => b.id === buildingId);
@@ -108,11 +151,14 @@ export default function EmptyPlotStep({ state, updateBuilding, goToStep }: Empty
 
       <p className="text-xs text-gray-500">
         AI removes each building from its photo, leaving an empty plot with identical framing. The
-        empty plot becomes the start frame of the reveal video.
+        empty plot becomes the start frame of the reveal video. Tip: hit &ldquo;Tailor with
+        AI&rdquo; first — it studies the photo and rewrites both prompts around this property&apos;s
+        actual walls, signs, furniture, and ground surfaces.
       </p>
 
       {buildings.map((building, index) => {
         const isBusy = Boolean(busyIds[building.id]);
+        const isTailoring = Boolean(tailoringIds[building.id]);
         const error = errors[building.id];
         const isPromptOpen = Boolean(promptOpenIds[building.id]);
 
@@ -160,20 +206,35 @@ export default function EmptyPlotStep({ state, updateBuilding, goToStep }: Empty
               </div>
             </div>
 
-            {/* Removal prompt (editable) */}
+            {/* Removal prompt (editable) + AI tailoring */}
             <div className="px-4 pb-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setPromptOpenIds((prev) => ({ ...prev, [building.id]: !isPromptOpen }))
-                }
-                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-200 touch-manipulation"
-              >
-                <ChevronDown
-                  className={`w-3.5 h-3.5 transition-transform ${isPromptOpen ? 'rotate-180' : ''}`}
-                />
-                Removal prompt
-              </button>
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPromptOpenIds((prev) => ({ ...prev, [building.id]: !isPromptOpen }))
+                  }
+                  className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-200 touch-manipulation"
+                >
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 transition-transform ${isPromptOpen ? 'rotate-180' : ''}`}
+                  />
+                  Removal prompt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => tailorPrompts(building.id)}
+                  disabled={anyRunning}
+                  className="flex items-center gap-1.5 text-[11px] font-semibold text-[#D1FE17] border border-[#D1FE17]/40 rounded-full px-3 py-1.5 hover:bg-[#D1FE17]/10 disabled:opacity-40 transition-colors touch-manipulation"
+                >
+                  {isTailoring ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Wand2 className="w-3.5 h-3.5" />
+                  )}
+                  {isTailoring ? 'Analyzing photo…' : 'Tailor with AI'}
+                </button>
+              </div>
               {isPromptOpen && (
                 <textarea
                   value={building.removalPrompt}

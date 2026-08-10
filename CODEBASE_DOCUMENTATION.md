@@ -237,13 +237,16 @@ Mobile-first 3-step wizard at `/app/assembly` implementing the "Transforming Emp
 
 ### components/assembly/EmptyPlotStep.tsx
 - Step 2 (guide Step 1): per building, generates the empty plot via nano-banana using the editable removal prompt, with aspect_ratio 'match_input_image' to preserve framing (Rule 1)
+- "Tailor with AI" per building: vision call (/api/assembly/tailor-prompts) inventories the photo and rewrites both the removal and reveal prompts around the property's actual elements (like the guide's Master Prompt Library); also replaces placeholder "Building N" names with the AI's property summary
 - Before/after comparison, quality checklist (Rule 4), regenerate loop, and "Clear all plots" sequential run
 
 ### components/assembly/RevealVideoStep.tsx
 - Step 3 (guide Step 2): per building, 8-second reveal via /api/generate-video — empty plot as the start frame (`image`) and the original photo as the end frame (`lastFrameImage`), locked camera, editable reveal prompt
 - Model toggle (Seedance fast / Veo 3.1), start/end frame preview, inline video player, download, redo, and "Generate all" sequential run
+- "Tailor with AI" per building re-tailors just the reveal prompt from the original photo
 
 ### Assembly API routes
+- `app/api/assembly/tailor-prompts/route.ts` — OpenAI vision call that inventories a finished-property photo and returns property-specific removal + reveal prompts (Zod-validated with one retry); the fixed "Negative:" block is always appended server-side from REVEAL_NEGATIVE_PROMPT
 - `app/api/assembly/save/route.ts` — upserts assembly state into content_creation_requests (same content_type_id NOT NULL fallback as studio)
 - `app/api/assembly/[id]/route.ts` — loads a saved assembly project state
 - `app/api/generate-video/route.ts` — accepts a `buildingId` (alongside studio's `sceneId`) and persists finished clip URLs onto the matching assembly building server-side
