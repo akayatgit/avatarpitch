@@ -3,6 +3,7 @@ import Replicate from 'replicate';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { persistRemoteFileToStorage } from '@/lib/storage';
 import { STUDIO_FORMAT } from '@/lib/studio';
+import { ASSEMBLY_FORMAT } from '@/lib/assembly';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -193,8 +194,11 @@ async function persistVideoToStorage(videoUrl: string): Promise<string> {
   });
 }
 
-/** Save a generated clip URL onto the matching scene of a studio project. */
-async function persistVideoToStudioProject(projectId: string, sceneId: string, videoUrl: string) {
+/**
+ * Save a generated clip URL onto the matching item of a wizard project:
+ * studio projects match scenes by id, assembly projects match buildings by id.
+ */
+async function persistVideoToProject(projectId: string, itemId: string, videoUrl: string) {
   try {
     const { data, error } = await supabaseAdmin
       .from('content_creation_requests')
@@ -203,7 +207,7 @@ async function persistVideoToStudioProject(projectId: string, sceneId: string, v
       .single();
 
     if (error || !data) {
-      console.error('Could not load studio project to persist video:', error);
+      console.error('Could not load project to persist video:', error);
       return;
     }
 
@@ -212,15 +216,16 @@ async function persistVideoToStudioProject(projectId: string, sceneId: string, v
         ? JSON.parse(data.generated_output)
         : data.generated_output;
 
-    if (!state || state.format !== STUDIO_FORMAT || !Array.isArray(state.scenes)) {
+    let item: any = null;
+    if (state?.format === STUDIO_FORMAT && Array.isArray(state.scenes)) {
+      item = state.scenes.find((s: any) => s?.id === itemId);
+    } else if (state?.format === ASSEMBLY_FORMAT && Array.isArray(state.buildings)) {
+      item = state.buildings.find((b: any) => b?.id === itemId);
+    }
+    if (!item) {
       return;
     }
-
-    const scene = state.scenes.find((s: any) => s?.id === sceneId);
-    if (!scene) {
-      return;
-    }
-    scene.videoUrl = videoUrl;
+    item.videoUrl = videoUrl;
 
     const { error: updateError } = await supabaseAdmin
       .from('content_creation_requests')
@@ -228,16 +233,16 @@ async function persistVideoToStudioProject(projectId: string, sceneId: string, v
       .eq('id', projectId);
 
     if (updateError) {
-      console.error('Could not persist video URL to studio project:', updateError);
+      console.error('Could not persist video URL to project:', updateError);
     }
   } catch (error) {
-    console.error('Error persisting video URL to studio project:', error);
+    console.error('Error persisting video URL to project:', error);
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const { imageUrls, prompt, sourcePrompt, fps, duration, resolution, aspectRatio, cameraFixed, lastFrameImage, model, generateAudio, projectId, sceneId } = await request.json();
+    const { imageUrls, prompt, sourcePrompt, fps, duration, resolution, aspectRatio, cameraFixed, lastFrameImage, model, generateAudio, projectId, sceneId, buildingId } = await request.json();
 
     if (!process.env.REPLICATE_API_TOKEN) {
       return NextResponse.json({ error: 'REPLICATE_API_TOKEN not configured' }, { status: 500 });
@@ -333,10 +338,16 @@ export async function POST(request: NextRequest) {
       throw new Error('Unexpected output format from Replicate - no valid video URL found');
     }
 
-    // Copy to durable storage and persist onto the studio project (when requested)
+    // Copy to durable storage and persist onto the wizard project (when requested)
     const durableVideoUrl = await persistVideoToStorage(videoUrl);
-    if (typeof projectId === 'string' && typeof sceneId === 'string' && projectId && sceneId) {
-      await persistVideoToStudioProject(projectId, sceneId, durableVideoUrl);
+    const itemId =
+      typeof sceneId === 'string' && sceneId
+        ? sceneId
+        : typeof buildingId === 'string' && buildingId
+          ? buildingId
+          : null;
+    if (typeof projectId === 'string' && projectId && itemId) {
+      await persistVideoToProject(projectId, itemId, durableVideoUrl);
     }
 
     return NextResponse.json({
