@@ -178,6 +178,12 @@ Contains library files with logic for generating the final prompts and orchestra
 - Defines StudioState/StudioScene (persisted in content_creation_requests.generated_output with format 'studio_v1') and ParsedScriptSchema (LLM output contract)
 - Used by the studio API routes and components/studio/*
 
+### assembly.ts
+- Shared types and Zod schemas for the Building Assembly wizard (empty plot → construction reveal video)
+- Defines AssemblyState/AssemblyBuilding (persisted in content_creation_requests.generated_output with format 'assembly_v1')
+- Ships the guide's two prompt templates: DEFAULT_REMOVAL_PROMPT (Prompt 1 — building removal) and DEFAULT_REVEAL_PROMPT (Prompt 2 — sequential construction animation)
+- Used by the assembly API routes and components/assembly/*
+
 ### storage.ts
 - Supabase Storage helper for durable public file hosting (replaces Vercel Blob)
 - Ensures a public `uploads` bucket exists, uploads files, and returns public HTTPS URLs
@@ -215,4 +221,30 @@ Mobile-first 4-step flow at `/app/studio` that replicates the AI content creatio
 - `app/api/generate-image/route.ts` — extended with a persist flag that copies generated images to Supabase Storage (used for reference images and scene frames that are reused as video inputs)
 - `app/api/upload-image/route.ts` — multipart image upload to Supabase Storage (`uploads` bucket); same `{ url }` response shape for Studio, templates, and project assets
 - `migrations/create_uploads_storage_bucket.sql` — durable SQL setup for the public uploads bucket + read/write policies
+
+## Building Assembly (Empty Plot → Construction Reveal)
+
+Mobile-first 3-step wizard at `/app/assembly` implementing the "Transforming Empty Plots into Modern Buildings" workflow: for each building, a finished-property photo (Reference 2 / end frame) is emptied into a cleared plot with nano-banana (Reference 1 / start frame), then an 8-second video animates the building constructing itself out of the empty land.
+
+### components/assembly/AssemblyWizard.tsx
+- Client orchestrator: 3-step indicator (Buildings → Empty plot → Reveal video), debounced autosave to /api/assembly/save, resume via ?projectId=
+- Recent assembly projects list on a fresh start
+
+### components/assembly/BuildingsStep.tsx
+- Step 1: project name, aspect ratio (16:9 / 9:16 / 1:1), and building count — pick 1-6 with chips or grow the list by adding reference photos ("Add another building")
+- Per building: upload the finished-property reference photo (/api/upload-image) or AI-generate one from a description (/api/generate-image with gpt-image-2)
+- Shows the guide's Four Golden Rules (identical framing, clean lighting, preserved environment, verify before animating)
+
+### components/assembly/EmptyPlotStep.tsx
+- Step 2 (guide Step 1): per building, generates the empty plot via nano-banana using the editable removal prompt, with aspect_ratio 'match_input_image' to preserve framing (Rule 1)
+- Before/after comparison, quality checklist (Rule 4), regenerate loop, and "Clear all plots" sequential run
+
+### components/assembly/RevealVideoStep.tsx
+- Step 3 (guide Step 2): per building, 8-second reveal via /api/generate-video — empty plot as the start frame (`image`) and the original photo as the end frame (`lastFrameImage`), locked camera, editable reveal prompt
+- Model toggle (Seedance fast / Veo 3.1), start/end frame preview, inline video player, download, redo, and "Generate all" sequential run
+
+### Assembly API routes
+- `app/api/assembly/save/route.ts` — upserts assembly state into content_creation_requests (same content_type_id NOT NULL fallback as studio)
+- `app/api/assembly/[id]/route.ts` — loads a saved assembly project state
+- `app/api/generate-video/route.ts` — accepts a `buildingId` (alongside studio's `sceneId`) and persists finished clip URLs onto the matching assembly building server-side
 
