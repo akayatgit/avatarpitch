@@ -96,6 +96,8 @@ export const AssemblyStateSchema = z.object({
   title: z.string(),
   aspectRatio: z.enum(ASSEMBLY_ASPECT_RATIOS),
   buildings: z.array(AssemblyBuildingSchema).min(1).max(MAX_BUILDINGS),
+  /** Stitched showcase video (all reveals in sequence, optional title card). */
+  finalVideoUrl: z.string().nullable().default(null),
   step: z.number().int().min(1).max(3),
 });
 
@@ -122,6 +124,7 @@ export function createEmptyAssemblyState(): AssemblyState {
     title: '',
     aspectRatio: '16:9',
     buildings: [createAssemblyBuilding(0)],
+    finalVideoUrl: null,
     step: 1,
   };
 }

@@ -244,9 +244,11 @@ Mobile-first 3-step wizard at `/app/assembly` implementing the "Transforming Emp
 - Step 3 (guide Step 2): per building, 8-second reveal via /api/generate-video — empty plot as the start frame (`image`) and the original photo as the end frame (`lastFrameImage`), locked camera, editable reveal prompt
 - Model toggle (Seedance fast / Veo 3.1), start/end frame preview, inline video player, download, redo, and "Generate all" sequential run
 - "Tailor with AI" per building re-tailors just the reveal prompt from the original photo
+- Final showcase: once every reveal is ready, stitches all clips (in building order) into one downloadable video via /api/assembly/stitch, with an optional 2-second title card rendered client-side on a canvas (real fonts) and uploaded as a PNG; any redone clip invalidates the stitched showcase
 
 ### Assembly API routes
 - `app/api/assembly/tailor-prompts/route.ts` — OpenAI vision call that inventories a finished-property photo and returns property-specific removal + reveal prompts (Zod-validated with one retry); the fixed "Negative:" block is always appended server-side from REVEAL_NEGATIVE_PROMPT
+- `app/api/assembly/stitch/route.ts` — ffmpeg (ffmpeg-static) pipeline: downloads the reveal clips (and optional title-card PNG), normalizes every segment to identical size/fps/codec (scale + pad, 24fps, h264, no audio), concats with stream copy, uploads the showcase MP4 to Supabase Storage, and persists finalVideoUrl onto the project
 - `app/api/assembly/save/route.ts` — upserts assembly state into content_creation_requests (same content_type_id NOT NULL fallback as studio)
 - `app/api/assembly/[id]/route.ts` — loads a saved assembly project state
 - `app/api/generate-video/route.ts` — accepts a `buildingId` (alongside studio's `sceneId`) and persists finished clip URLs onto the matching assembly building server-side

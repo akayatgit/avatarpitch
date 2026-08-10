@@ -210,6 +210,7 @@ export default function AssemblyWizard({
         <RevealVideoStep
           state={state}
           projectId={projectId}
+          updateState={updateState}
           updateBuilding={updateBuilding}
           goToStep={goToStep}
         />
