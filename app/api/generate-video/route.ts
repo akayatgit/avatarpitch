@@ -272,12 +272,25 @@ export async function POST(request: NextRequest) {
     let input: Record<string, any>;
     let modelId: string;
 
+    // Split an inline trailing "Negative: …" block (used by assembly reveal prompts) out of
+    // the main prompt: Veo has a dedicated negative_prompt field, and Seedance has none at
+    // all — leaving a long list of forbidden concepts inside the positive prompt makes the
+    // model more likely to produce them.
+    let mainPrompt = basePrompt;
+    let negativePrompt: string | null = null;
+    const negativeMatch = basePrompt.match(/(?:^|\n)\s*Negative:\s*([\s\S]+)$/);
+    if (negativeMatch && typeof negativeMatch.index === 'number') {
+      negativePrompt = negativeMatch[1].trim();
+      mainPrompt = basePrompt.slice(0, negativeMatch.index).trim();
+    }
+
     if (selectedModel === 'veo-3.1') {
       modelId = 'google/veo-3.1';
       const allowedDurations = new Set([4, 6, 8]);
       const veoDuration = typeof duration === 'number' && allowedDurations.has(duration) ? duration : 6;
+
       input = {
-        prompt: basePrompt,
+        prompt: mainPrompt,
         duration: veoDuration,
         resolution: videoResolution,
         aspect_ratio: videoAspectRatio,
@@ -285,14 +298,21 @@ export async function POST(request: NextRequest) {
         reference_images: [],
         image: inputImageUrl,
       };
+      if (negativePrompt) {
+        input.negative_prompt = negativePrompt;
+      }
+      // NOTE: last_frame is ignored by Veo when reference_images is non-empty
       if (lastFrameImage) {
         input.last_frame = lastFrameImage;
       }
     } else {
-      modelId = 'bytedance/seedance-1-pro-fast';
+      // seedance-1-pro-fast does NOT accept last_frame_image (it silently generates
+      // without the end frame, inventing content). When an end frame is required
+      // (e.g. assembly construction reveals), upgrade to the full seedance-1-pro.
+      modelId = lastFrameImage ? 'bytedance/seedance-1-pro' : 'bytedance/seedance-1-pro-fast';
       input = {
         fps: fps || 24,
-        prompt: basePrompt,
+        prompt: mainPrompt,
         duration: videoDuration,
         resolution: videoResolution,
         aspect_ratio: videoAspectRatio,

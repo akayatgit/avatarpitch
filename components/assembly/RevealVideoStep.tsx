@@ -302,7 +302,7 @@ export default function RevealVideoStep({
             <div className="px-4 pb-2 flex items-center gap-2">
               {(
                 [
-                  { value: 'seedance-1-pro-fast', label: 'Fast' },
+                  { value: 'seedance-1-pro-fast', label: 'Seedance Pro' },
                   { value: 'veo-3.1', label: 'Veo 3.1' },
                 ] as Array<{ value: AssemblyVideoModel; label: string }>
               ).map((option) => (
