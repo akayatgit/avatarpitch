@@ -42,6 +42,7 @@ export default function SurrealIdeationStep({
   const [rawUrl, setRawUrl] = useState('');
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [thumbError, setThumbError] = useState<string | null>(null);
   const [topic, setTopic] = useState('');
   const [imageModel, setImageModel] = useState<ImageModelId>(DEFAULT_IMAGE_MODEL_ID);
@@ -106,6 +107,29 @@ export default function SurrealIdeationStep({
     setCorrections('');
     setFinalImageUrl(null);
     setInspirationRead(null);
+  };
+
+  const handleUploadFile = async (file: File | null) => {
+    if (!file) return;
+    setError(null);
+    setThumbError(null);
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('images', file);
+      const response = await fetch('/api/upload-image', { method: 'POST', body: formData });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.error || typeof data.url !== 'string') {
+        throw new Error(data.error || 'Failed to upload image');
+      }
+      // Feed the durable storage URL through the existing resolve flow
+      setRawUrl(data.url);
+      resetDownstream();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload image');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const generateDraftImage = async (
@@ -302,15 +326,36 @@ export default function SurrealIdeationStep({
         </div>
       )}
 
-      {/* Pinterest / image URL */}
-      <input
-        id="inspo-url"
-        type="url"
-        value={rawUrl}
-        onChange={(e) => { setRawUrl(e.target.value); resetDownstream(); }}
-        className="input-field text-sm"
-        placeholder="Paste a pin.it or pinterest.com URL…"
-      />
+      {/* Pinterest / image URL + photo upload */}
+      <div className="flex gap-2">
+        <input
+          id="inspo-url"
+          type="url"
+          value={rawUrl}
+          onChange={(e) => { setRawUrl(e.target.value); resetDownstream(); }}
+          className="input-field text-sm flex-1"
+          placeholder="Paste a pin.it / pinterest.com URL, or upload a photo…"
+        />
+        <label
+          className={`flex items-center px-4 rounded-xl border border-gray-800 text-xs font-medium whitespace-nowrap transition-all touch-manipulation ${
+            uploading
+              ? 'text-gray-600 cursor-wait'
+              : 'text-gray-300 cursor-pointer hover:border-gray-600 hover:text-white active:scale-95'
+          }`}
+        >
+          {uploading ? 'Uploading…' : 'Upload'}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            disabled={uploading}
+            onChange={(e) => {
+              void handleUploadFile(e.target.files?.[0] ?? null);
+              e.target.value = '';
+            }}
+          />
+        </label>
+      </div>
 
       {/* Inspiration image preview — full width */}
       {(resolving || resolvedUrl || thumbError) && (
