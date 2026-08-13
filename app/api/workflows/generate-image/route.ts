@@ -6,6 +6,22 @@ import {
 } from '@/lib/tools/imageGeneration';
 import { generateNanoBananaImage } from '@/lib/tools/nanoBananaImage';
 import { generateSeedreamImage } from '@/lib/tools/seedreamImage';
+import { persistRemoteFileToStorage } from '@/lib/storage';
+
+/** Replicate output URLs expire — re-host in Supabase Storage so saved projects stay valid. */
+async function persistImages(images: string[]): Promise<string[]> {
+  return Promise.all(
+    images.map((url) =>
+      url.startsWith('http')
+        ? persistRemoteFileToStorage(url, {
+            folder: 'drone-shot/images',
+            fileName: `image-${Date.now()}.jpg`,
+            contentType: 'image/jpeg',
+          })
+        : Promise.resolve(url)
+    )
+  );
+}
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -65,7 +81,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        images,
+        images: await persistImages(images),
         model: 'nano-banana-2',
       });
     }
@@ -76,7 +92,7 @@ export async function POST(request: NextRequest) {
         aspectRatio: '9:16',
         outputFormat: 'jpg',
       });
-      return NextResponse.json({ success: true, images, model: 'seedream-3' });
+      return NextResponse.json({ success: true, images: await persistImages(images), model: 'seedream-3' });
     }
 
     const styleMode: ImageStyleMode =
@@ -99,7 +115,7 @@ export async function POST(request: NextRequest) {
       mode: styleMode,
     });
 
-    return NextResponse.json({ success: true, images, model: 'gpt-image-2' });
+    return NextResponse.json({ success: true, images: await persistImages(images), model: 'gpt-image-2' });
   } catch (error) {
     console.error('Image generation error:', error);
     return NextResponse.json(

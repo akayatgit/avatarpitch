@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateWorkflowVideo } from '@/lib/tools/generateWorkflowVideo';
+import { persistRemoteFileToStorage } from '@/lib/storage';
 import {
   DEFAULT_VIDEO_MODEL_ID,
   isSensitiveVideoError,
@@ -53,7 +54,16 @@ export async function POST(request: NextRequest) {
       generateAudio: true,
     });
 
-    return NextResponse.json({ success: true, videoUrl, model: usedModel });
+    // Replicate output URLs expire — re-host in Supabase Storage so saved projects stay valid.
+    const durableVideoUrl = videoUrl.startsWith('http')
+      ? await persistRemoteFileToStorage(videoUrl, {
+          folder: 'drone-shot/videos',
+          fileName: `drone-shot-${Date.now()}.mp4`,
+          contentType: 'video/mp4',
+        })
+      : videoUrl;
+
+    return NextResponse.json({ success: true, videoUrl: durableVideoUrl, model: usedModel });
   } catch (error) {
     console.error('Video generation error:', error);
     const message = error instanceof Error ? error.message : 'Failed to generate video';

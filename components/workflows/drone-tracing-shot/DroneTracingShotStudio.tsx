@@ -1,6 +1,8 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
+import { Plus } from 'lucide-react';
 import PathDrawingCanvas, { PathDrawingCanvasHandle } from '@/components/tools/PathDrawingCanvas';
 import DurationSelect, { clampVideoDuration } from '@/components/workflows/DurationSelect';
 import ImageModelSelect from '@/components/workflows/ImageModelSelect';
@@ -12,6 +14,7 @@ import VideoModelSelect from '@/components/workflows/VideoModelSelect';
 import VideoReferenceSelect, {
   type VideoReferenceSource,
 } from '@/components/workflows/VideoReferenceSelect';
+import { DRONE_SHOT_FORMAT, type DroneShotState } from '@/lib/droneShot';
 import { toDisplayImageUrl } from '@/lib/imageDisplay';
 import { applyInspirationImageLocks } from '@/lib/styles/surrealTech';
 import { DEFAULT_IMAGE_MODEL_ID, type ImageModelId } from '@/lib/tools/imageModels';
@@ -42,37 +45,164 @@ const STEPS: Array<{ id: Step; label: string }> = [
   { id: 'video', label: 'Video' },
 ];
 
-interface Props {
-  onBack?: () => void;
+export interface RecentDroneShotProject {
+  id: string;
+  title: string;
+  createdAt: string;
+  hasVideo: boolean;
 }
 
-export default function DroneTracingShotStudio({ onBack }: Props) {
-  const [step, setStep] = useState<Step>('ideation');
-  const [error, setError] = useState<string | null>(null);
-  const [ideation, setIdeation] = useState<SurrealIdeationResult | null>(null);
+interface Props {
+  onBack?: () => void;
+  initialProjectId?: string | null;
+  initialState?: DroneShotState | null;
+  recentProjects?: RecentDroneShotProject[];
+}
 
-  const [duration, setDuration] = useState(12);
-  const [resolution, setResolution] = useState<'720p' | '480p'>('720p');
-  const [imageModel, setImageModel] = useState<ImageModelId>(DEFAULT_IMAGE_MODEL_ID);
-  const [videoModel, setVideoModel] = useState<VideoModelId>(DEFAULT_VIDEO_MODEL_ID);
-  const [referenceSource, setReferenceSource] = useState<VideoReferenceSource>('path');
+export default function DroneTracingShotStudio({
+  onBack,
+  initialProjectId = null,
+  initialState = null,
+  recentProjects = [],
+}: Props) {
+  const [projectId, setProjectId] = useState<string | null>(initialProjectId);
+  const [saving, setSaving] = useState(false);
+
+  const [step, setStep] = useState<Step>(initialState?.step ?? 'ideation');
+  const [error, setError] = useState<string | null>(null);
+  const [ideation, setIdeation] = useState<SurrealIdeationResult | null>(
+    initialState?.ideation ?? null
+  );
+
+  const [duration, setDuration] = useState(initialState?.duration ?? 12);
+  const [resolution, setResolution] = useState<'720p' | '480p'>(
+    initialState?.resolution ?? '720p'
+  );
+  const [imageModel, setImageModel] = useState<ImageModelId>(
+    initialState?.imageModel ?? DEFAULT_IMAGE_MODEL_ID
+  );
+  const [videoModel, setVideoModel] = useState<VideoModelId>(
+    initialState?.videoModel ?? DEFAULT_VIDEO_MODEL_ID
+  );
+  const [referenceSource, setReferenceSource] = useState<VideoReferenceSource>(
+    initialState?.referenceSource ?? 'path'
+  );
   const [sensitiveSuggestedModel, setSensitiveSuggestedModel] = useState<VideoModelId | null>(null);
   const [generatingImage, setGeneratingImage] = useState(false);
 
-  const [aerialImageUrl, setAerialImageUrl] = useState<string | null>(null);
+  const [aerialImageUrl, setAerialImageUrl] = useState<string | null>(
+    initialState?.aerialImageUrl ?? null
+  );
   const [hasPath, setHasPath] = useState(false);
   const canvasRef = useRef<PathDrawingCanvasHandle>(null);
 
-  const [annotatedImage, setAnnotatedImage] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState('');
+  const [annotatedImage, setAnnotatedImage] = useState<string | null>(
+    initialState?.annotatedImage ?? null
+  );
+  const [prompt, setPrompt] = useState(initialState?.prompt ?? '');
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
-  const [pathAnalysis, setPathAnalysis] = useState<string | null>(null);
+  const [pathAnalysis, setPathAnalysis] = useState<string | null>(
+    initialState?.pathAnalysis ?? null
+  );
 
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(initialState?.videoUrl ?? null);
   const [generatingVideo, setGeneratingVideo] = useState(false);
   const [downloading, setDownloading] = useState(false);
 
   const stepIndex = STEPS.findIndex((s) => s.id === step);
+
+  // ── Autosave to content_creation_requests (mirrors StudioWizard) ──
+  const persistableState = useMemo<DroneShotState>(
+    () => ({
+      format: DRONE_SHOT_FORMAT,
+      step,
+      ideation,
+      duration,
+      resolution,
+      imageModel,
+      videoModel,
+      referenceSource,
+      aerialImageUrl,
+      annotatedImage,
+      prompt,
+      pathAnalysis,
+      videoUrl,
+    }),
+    [
+      step,
+      ideation,
+      duration,
+      resolution,
+      imageModel,
+      videoModel,
+      referenceSource,
+      aerialImageUrl,
+      annotatedImage,
+      prompt,
+      pathAnalysis,
+      videoUrl,
+    ]
+  );
+
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
+  const stateRef = useRef(persistableState);
+  stateRef.current = persistableState;
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydratedRef = useRef(false);
+
+  const persistNow = useCallback(async () => {
+    const currentState = stateRef.current;
+    // Nothing worth saving until ideation produced a world still
+    if (!currentState.ideation) return;
+    setSaving(true);
+    try {
+      const response = await fetch('/api/drone-shot/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: projectIdRef.current, state: currentState }),
+      });
+      const data = await response.json();
+      if (response.ok && data?.projectId && !projectIdRef.current) {
+        setProjectId(data.projectId);
+        // Keep the URL shareable / refresh-safe without a navigation
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(null, '', `/app/drone-shot?projectId=${data.projectId}`);
+        }
+      }
+      // The save route re-hosts large data-URL path images in storage — adopt the durable URL
+      if (
+        response.ok &&
+        typeof data?.state?.annotatedImage === 'string' &&
+        stateRef.current.annotatedImage?.startsWith('data:')
+      ) {
+        setAnnotatedImage(data.state.annotatedImage);
+      }
+    } catch (error) {
+      console.error('Autosave failed:', error);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  // Debounced autosave whenever state changes (skips first render / hydration)
+  useEffect(() => {
+    if (!hydratedRef.current) {
+      hydratedRef.current = true;
+      return;
+    }
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      void persistNow();
+    }, 1200);
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [persistableState, persistNow]);
 
   const handleIdeationComplete = (result: SurrealIdeationResult) => {
     setIdeation(result);
@@ -259,15 +389,42 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
   };
 
   const handleStartNew = () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setProjectId(null);
     setStep('ideation'); setIdeation(null); setError(null);
     setAerialImageUrl(null); setHasPath(false); setAnnotatedImage(null);
     setPrompt(''); setDuration(12); setPathAnalysis(null); setVideoUrl(null);
     setVideoModel(DEFAULT_VIDEO_MODEL_ID); setReferenceSource('path');
     setSensitiveSuggestedModel(null);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', '/app/drone-shot');
+    }
   };
+
+  const isFreshProject = !projectId && !ideation;
 
   return (
     <div className="space-y-3 max-w-4xl">
+
+      {/* ── Header: project state ── */}
+      {(projectId || saving) && (
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs text-gray-500">
+            {ideation ? ideation.suggestion.title : 'Drone shot'}
+            {saving && <span className="ml-2 text-gray-600">Saving…</span>}
+          </p>
+          {projectId && (
+            <button
+              type="button"
+              onClick={handleStartNew}
+              className="flex items-center gap-1 text-xs text-gray-300 border border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-900 flex-shrink-0 touch-manipulation"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ── iOS-style step dots ── */}
       <div className="flex items-start gap-0 px-1">
@@ -310,11 +467,41 @@ export default function DroneTracingShotStudio({ onBack }: Props) {
 
       {/* ── Ideation ── */}
       {step === 'ideation' && (
-        <SurrealIdeationStep
-          onComplete={handleIdeationComplete}
-          onBack={onBack}
-          stillMode="aerial"
-        />
+        <>
+          <SurrealIdeationStep
+            onComplete={handleIdeationComplete}
+            onBack={onBack}
+            stillMode="aerial"
+          />
+
+          {/* Recent drone shots (only on a fresh start) */}
+          {isFreshProject && recentProjects.length > 0 && (
+            <div className="mt-8">
+              <h2 className="text-sm font-semibold text-gray-300 mb-3">Continue where you left off</h2>
+              <div className="space-y-2">
+                {recentProjects.map((project) => (
+                  <Link
+                    key={project.id}
+                    href={`/app/drone-shot?projectId=${project.id}`}
+                    className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 hover:border-gray-600 transition-colors touch-manipulation"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm text-white font-medium truncate">
+                        {project.title || 'Untitled drone shot'}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {project.hasVideo ? 'Video ready' : 'In progress'}
+                      </p>
+                    </div>
+                    <span className="text-xs text-gray-500 flex-shrink-0 ml-3">
+                      {new Date(project.createdAt).toLocaleDateString()}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* ── World still ── */}
