@@ -19,6 +19,7 @@ export default function TopNav() {
   const navigation: NavItem[] = [
     { name: 'Home', href: '/app' },
     { name: 'Studio', href: '/app/studio' },
+    { name: 'Drone Shot', href: '/app/drone-shot' },
     { name: 'Assembly', href: '/app/assembly' },
     { name: 'Projects', href: '/app/projects' },
     { name: 'Content Types', href: '/app/templates' },
