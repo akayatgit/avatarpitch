@@ -1,8 +1,30 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import Link from 'next/link';
+import { Blocks, Clapperboard, Drone } from 'lucide-react';
 import NetworkError from '@/components/NetworkError';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 import { ensureContentTypesSeeded } from '@/lib/seedData';
+
+const TOOLS = [
+  {
+    name: 'Studio',
+    href: '/app/studio',
+    description: 'Tamil script → AI video wizard',
+    icon: Clapperboard,
+  },
+  {
+    name: 'Drone Shot',
+    href: '/app/drone-shot',
+    description: 'Trace a flight path over a surreal world',
+    icon: Drone,
+  },
+  {
+    name: 'Assembly',
+    href: '/app/assembly',
+    description: 'Empty plot → construction reveal',
+    icon: Blocks,
+  },
+] as const;
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';
@@ -48,6 +70,28 @@ export default async function Dashboard() {
         <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">Apps</h1>
         <p className="text-sm text-gray-400">Create ad-ready creatives instantly</p>
           </div>
+
+      {/* AI Tools */}
+      <div className="mb-8 lg:mb-10">
+        <h2 className="text-sm font-semibold text-gray-300 mb-3">AI tools</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {TOOLS.map((tool) => (
+            <Link
+              key={tool.name}
+              href={tool.href}
+              className="group flex items-center gap-4 bg-gray-900 border border-gray-800 rounded-xl px-4 py-4 hover:border-[#D1FE17]/50 transition-all duration-200 active:scale-[0.98] touch-manipulation"
+            >
+              <div className="w-11 h-11 rounded-xl bg-[#D1FE17]/10 border border-[#D1FE17]/20 flex items-center justify-center flex-shrink-0 group-hover:bg-[#D1FE17]/20 transition-colors">
+                <tool.icon className="w-5 h-5 text-[#D1FE17]" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white">{tool.name}</p>
+                <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{tool.description}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </div>
 
       {/* Content Types Grid */}
       {contentTypes.length === 0 ? (
