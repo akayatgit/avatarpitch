@@ -59,7 +59,8 @@ After=network.target
 
 [Service]
 WorkingDirectory=/home/<user>/avatarpitch
-ExecStart=/usr/bin/npm start
+# Port 3001 — matches the tunnel hostname mapping (avatarpitch.jobmaster.agency → 127.0.0.1:3001)
+ExecStart=/usr/bin/npm start -- -p 3001
 Restart=on-failure
 EnvironmentFile=/home/<user>/avatarpitch/.env.local
 # Renders must LOSE the CPU fight against scraper/Ollama work:
