@@ -83,6 +83,7 @@ export default async function ProjectsPage() {
         const productName = inputs['PRODUCT NAME'] || 
                            inputs['product name'] || 
                            inputs.subject?.name || 
+                           inputs.title ||
                            'Untitled Project';
         
         // Get scenes from generated_output, or empty array if not yet generated
