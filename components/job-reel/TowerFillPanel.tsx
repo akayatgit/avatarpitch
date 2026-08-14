@@ -19,6 +19,7 @@ interface TowerHealth {
 export interface TowerCardData
   extends Pick<JobReelCard, 'company' | 'logoUrl' | 'role' | 'experience' | 'education'> {
   towerJobId: string;
+  applyUrl?: string | null;
 }
 
 interface TowerFillPanelProps {

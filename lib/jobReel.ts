@@ -29,6 +29,8 @@ export const JobReelCardSchema = z.object({
   role: z.string(),
   experience: z.string(),
   education: z.string(),
+  /** Job posting / apply link — goes into the shareable PDF, never the video. */
+  applyUrl: z.string().default(''),
   /** Optional per-section background (falls back to the default background). */
   backgroundUrl: z.string().nullable().default(null),
   backgroundType: z.enum(['video', 'image']).nullable().default(null),
@@ -100,6 +102,7 @@ export function createJobReelCard(): JobReelCard {
     role: '',
     experience: '',
     education: '',
+    applyUrl: '',
     backgroundUrl: null,
     backgroundType: null,
   };
