@@ -61,7 +61,7 @@ export default async function DroneShotPage({
         if (!state) return null;
         return {
           id: row.id as string,
-          title: state.ideation?.suggestion.title ?? 'Untitled drone shot',
+          title: state.ideation?.suggestion.title ?? 'Drone shot',
           createdAt: row.created_at as string,
           hasVideo: Boolean(state.videoUrl),
         };

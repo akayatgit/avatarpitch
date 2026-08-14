@@ -5,45 +5,50 @@ import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import PathDrawingCanvas, { PathDrawingCanvasHandle } from '@/components/tools/PathDrawingCanvas';
 import DurationSelect, { clampVideoDuration } from '@/components/workflows/DurationSelect';
-import ImageModelSelect from '@/components/workflows/ImageModelSelect';
 import SensitiveVideoFallback from '@/components/workflows/SensitiveVideoFallback';
-import SurrealIdeationStep, {
-  type SurrealIdeationResult,
-} from '@/components/workflows/SurrealIdeationStep';
 import VideoModelSelect from '@/components/workflows/VideoModelSelect';
 import VideoReferenceSelect, {
   type VideoReferenceSource,
 } from '@/components/workflows/VideoReferenceSelect';
 import { DRONE_SHOT_FORMAT, type DroneShotState } from '@/lib/droneShot';
 import { toDisplayImageUrl } from '@/lib/imageDisplay';
-import { applyInspirationImageLocks } from '@/lib/styles/surrealTech';
-import { DEFAULT_IMAGE_MODEL_ID, type ImageModelId } from '@/lib/tools/imageModels';
+import { DEFAULT_IMAGE_MODEL_ID } from '@/lib/tools/imageModels';
 import {
   DEFAULT_VIDEO_MODEL_ID,
   getVideoModel,
   type VideoModelId,
 } from '@/lib/tools/videoModels';
 
-function buildGrokSkipPathPrompt(ideation: SurrealIdeationResult, durationSec: number): string {
+/** Realistic mode: the photo IS the world — no concepts, no stylization. */
+const REALISTIC_SCENE_DESCRIPTION =
+  'The real-world scene exactly as it appears in the reference photo — realistic, photographic, true to the actual location, lighting, and subjects. No stylization, no surreal changes.';
+
+function buildGrokSkipPathPrompt(durationSec: number): string {
   return [
-    `Animate this still into a ${durationSec}s cinematic vertical 9:16 shot.`,
-    `Teaching topic: ${ideation.topic}`,
-    `Concept: ${ideation.suggestion.title}. ${ideation.suggestion.concept}`,
-    `Motion: ${ideation.suggestion.motionHint || 'Smooth cinematic camera exploring the scene with light handheld energy.'}`,
-    'Keep the exact subjects, pose, and composition from the starting frame.',
+    `Animate this real photo into a ${durationSec}s cinematic vertical 9:16 FPV drone shot.`,
+    'Photorealistic and true to life — keep the exact subjects, location, lighting, colors, and composition from the starting frame.',
+    'Motion: smooth cinematic drone camera exploring the real scene with natural momentum.',
     'No red lines, arrows, UI overlays, watermarks, or on-screen text.',
   ].join('\n');
 }
 
-type Step = 'ideation' | 'world' | 'draw' | 'prompt' | 'video';
+type Step = 'image' | 'draw' | 'prompt' | 'video';
 
 const STEPS: Array<{ id: Step; label: string }> = [
-  { id: 'ideation', label: 'Idea' },
-  { id: 'world', label: 'World' },
+  { id: 'image', label: 'Photo' },
   { id: 'draw', label: 'Path' },
   { id: 'prompt', label: 'Prompt' },
   { id: 'video', label: 'Video' },
 ];
+
+/** Map legacy saved steps ('ideation'/'world') onto the simplified flow. */
+function resolveInitialStep(state: DroneShotState | null): Step {
+  if (!state) return 'image';
+  if (state.step === 'draw' || state.step === 'prompt' || state.step === 'video') {
+    return state.step;
+  }
+  return state.aerialImageUrl ? 'draw' : 'image';
+}
 
 export interface RecentDroneShotProject {
   id: string;
@@ -68,18 +73,27 @@ export default function DroneTracingShotStudio({
   const [projectId, setProjectId] = useState<string | null>(initialProjectId);
   const [saving, setSaving] = useState(false);
 
-  const [step, setStep] = useState<Step>(initialState?.step ?? 'ideation');
+  const [step, setStep] = useState<Step>(resolveInitialStep(initialState));
   const [error, setError] = useState<string | null>(null);
-  const [ideation, setIdeation] = useState<SurrealIdeationResult | null>(
-    initialState?.ideation ?? null
-  );
+
+  // ── Inspiration photo (used directly as the world still) ──
+  const initialInspiration =
+    initialState?.inspirationImageUrl ??
+    initialState?.aerialImageUrl ??
+    initialState?.ideation?.inspirationImageUrl ??
+    null;
+  const [rawUrl, setRawUrl] = useState(initialInspiration ?? '');
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(initialInspiration);
+  const [resolving, setResolving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [thumbError, setThumbError] = useState<string | null>(null);
+  const resolveSeq = useRef(0);
+  // Skip the resolve round-trip for URLs we already know are direct (restored / uploaded)
+  const preResolvedRef = useRef<string | null>(initialInspiration);
 
   const [duration, setDuration] = useState(initialState?.duration ?? 12);
   const [resolution, setResolution] = useState<'720p' | '480p'>(
     initialState?.resolution ?? '720p'
-  );
-  const [imageModel, setImageModel] = useState<ImageModelId>(
-    initialState?.imageModel ?? DEFAULT_IMAGE_MODEL_ID
   );
   const [videoModel, setVideoModel] = useState<VideoModelId>(
     initialState?.videoModel ?? DEFAULT_VIDEO_MODEL_ID
@@ -88,7 +102,6 @@ export default function DroneTracingShotStudio({
     initialState?.referenceSource ?? 'path'
   );
   const [sensitiveSuggestedModel, setSensitiveSuggestedModel] = useState<VideoModelId | null>(null);
-  const [generatingImage, setGeneratingImage] = useState(false);
 
   const [aerialImageUrl, setAerialImageUrl] = useState<string | null>(
     initialState?.aerialImageUrl ?? null
@@ -111,15 +124,86 @@ export default function DroneTracingShotStudio({
 
   const stepIndex = STEPS.findIndex((s) => s.id === step);
 
+  // ── Resolve pin.it / pinterest URLs into direct image URLs ──
+  useEffect(() => {
+    const trimmed = rawUrl.trim();
+    if (!trimmed) {
+      setResolvedUrl(null);
+      setThumbError(null);
+      setResolving(false);
+      return;
+    }
+    if (trimmed === preResolvedRef.current) return;
+
+    let cancelled = false;
+    const seq = ++resolveSeq.current;
+    const timer = setTimeout(async () => {
+      setResolving(true);
+      setThumbError(null);
+      try {
+        const response = await fetch('/api/resolve-inspiration-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: trimmed }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (cancelled || seq !== resolveSeq.current) return;
+        if (!response.ok || data.error) {
+          setResolvedUrl(null);
+          setThumbError(data.error || 'Could not load that image URL');
+          return;
+        }
+        setResolvedUrl(typeof data.imageUrl === 'string' ? data.imageUrl : null);
+      } catch {
+        if (!cancelled && seq === resolveSeq.current) {
+          setResolvedUrl(null);
+          setThumbError('Could not resolve that URL');
+        }
+      } finally {
+        if (!cancelled && seq === resolveSeq.current) setResolving(false);
+      }
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [rawUrl]);
+
+  const handleUploadFile = async (file: File | null) => {
+    if (!file) return;
+    setError(null);
+    setThumbError(null);
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('images', file);
+      const response = await fetch('/api/upload-image', { method: 'POST', body: formData });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.error || typeof data.url !== 'string') {
+        throw new Error(data.error || 'Failed to upload image');
+      }
+      // Storage URL is already direct — no resolve round-trip needed
+      preResolvedRef.current = data.url;
+      setRawUrl(data.url);
+      setResolvedUrl(data.url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload image');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   // ── Autosave to content_creation_requests (mirrors StudioWizard) ──
   const persistableState = useMemo<DroneShotState>(
     () => ({
       format: DRONE_SHOT_FORMAT,
       step,
-      ideation,
+      ideation: initialState?.ideation ?? null,
+      inspirationImageUrl: resolvedUrl,
       duration,
       resolution,
-      imageModel,
+      imageModel: initialState?.imageModel ?? DEFAULT_IMAGE_MODEL_ID,
       videoModel,
       referenceSource,
       aerialImageUrl,
@@ -130,10 +214,10 @@ export default function DroneTracingShotStudio({
     }),
     [
       step,
-      ideation,
+      initialState,
+      resolvedUrl,
       duration,
       resolution,
-      imageModel,
       videoModel,
       referenceSource,
       aerialImageUrl,
@@ -153,8 +237,8 @@ export default function DroneTracingShotStudio({
 
   const persistNow = useCallback(async () => {
     const currentState = stateRef.current;
-    // Nothing worth saving until ideation produced a world still
-    if (!currentState.ideation) return;
+    // Nothing worth saving until the photo is locked in as the world still
+    if (!currentState.aerialImageUrl) return;
     setSaving(true);
     try {
       const response = await fetch('/api/drone-shot/save', {
@@ -204,50 +288,15 @@ export default function DroneTracingShotStudio({
     };
   }, [persistableState, persistNow]);
 
-  const handleIdeationComplete = (result: SurrealIdeationResult) => {
-    setIdeation(result);
-    setAerialImageUrl(result.finalImageUrl);
-    setHasPath(false);
-    setError(null);
-    setStep('world');
-  };
-
-  const handleGenerateAerial = async () => {
-    if (!ideation) return;
-    setError(null);
-    setGeneratingImage(true);
-    try {
-      const scenePrompt = applyInspirationImageLocks(
-        ideation.suggestion.imagePrompt,
-        ideation.suggestion.scale
-      );
-      const response = await fetch('/api/workflows/generate-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenePrompt,
-          referenceImageUrls: [
-            ideation.inspirationImageUrl,
-            ideation.draftImageUrl || ideation.finalImageUrl,
-          ].filter(Boolean),
-          numImages: 1,
-          model: imageModel,
-          size: '2K',
-          mode: 'none',
-        }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.error) throw new Error(data.error || 'Failed to generate the world still');
-      const url: string | undefined = Array.isArray(data.images) ? data.images[0] : undefined;
-      if (!url) throw new Error('Image API returned no usable image');
-      setAerialImageUrl(url);
-      setHasPath(false);
-      setStep('draw');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate the world still');
-    } finally {
-      setGeneratingImage(false);
+  const handleUsePhoto = () => {
+    if (!resolvedUrl) {
+      setError('Paste a Pinterest / image URL or upload a photo first');
+      return;
     }
+    setError(null);
+    setAerialImageUrl(resolvedUrl);
+    setHasPath(false);
+    setStep('draw');
   };
 
   const handleVideoModelChange = (id: VideoModelId) => {
@@ -258,21 +307,21 @@ export default function DroneTracingShotStudio({
   };
 
   const handleSkipPathForGrok = () => {
-    if (!ideation || !aerialImageUrl) {
-      setError('World still is required before skipping the path');
+    if (!aerialImageUrl) {
+      setError('Pick a photo before skipping the path');
       return;
     }
     setAnnotatedImage(null);
     setPathAnalysis(null);
     setReferenceSource('original');
     setVideoModel('grok-imagine-1.5');
-    setPrompt(buildGrokSkipPathPrompt(ideation, duration));
+    setPrompt(buildGrokSkipPathPrompt(duration));
     setError(null);
     setStep('prompt');
   };
 
   const handleConfirmPath = async () => {
-    if (!canvasRef.current || !ideation) return;
+    if (!canvasRef.current) return;
     let exported: string;
     try {
       exported = canvasRef.current.exportAnnotatedImage();
@@ -294,13 +343,9 @@ export default function DroneTracingShotStudio({
         body: JSON.stringify({
           workflowId: 'drone-tracing-shot',
           inputs: {
-            locationDescription: `${ideation.suggestion.title}: ${ideation.suggestion.concept}`,
+            locationDescription: REALISTIC_SCENE_DESCRIPTION,
             duration,
             annotatedImage: exported,
-            inspirationImageUrl: ideation.inspirationImageUrl,
-            inspirationRead: ideation.inspirationRead ?? undefined,
-            topic: ideation.topic,
-            motionHint: ideation.suggestion.motionHint,
           },
         }),
       });
@@ -391,7 +436,9 @@ export default function DroneTracingShotStudio({
   const handleStartNew = () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     setProjectId(null);
-    setStep('ideation'); setIdeation(null); setError(null);
+    setStep('image'); setError(null);
+    setRawUrl(''); setResolvedUrl(null); setThumbError(null);
+    preResolvedRef.current = null;
     setAerialImageUrl(null); setHasPath(false); setAnnotatedImage(null);
     setPrompt(''); setDuration(12); setPathAnalysis(null); setVideoUrl(null);
     setVideoModel(DEFAULT_VIDEO_MODEL_ID); setReferenceSource('path');
@@ -401,7 +448,7 @@ export default function DroneTracingShotStudio({
     }
   };
 
-  const isFreshProject = !projectId && !ideation;
+  const isFreshProject = !projectId && !aerialImageUrl;
 
   return (
     <div className="space-y-3 max-w-4xl">
@@ -410,7 +457,7 @@ export default function DroneTracingShotStudio({
       {(projectId || saving) && (
         <div className="flex items-center justify-between px-1">
           <p className="text-xs text-gray-500">
-            {ideation ? ideation.suggestion.title : 'Drone shot'}
+            Drone shot
             {saving && <span className="ml-2 text-gray-600">Saving…</span>}
           </p>
           {projectId && (
@@ -465,14 +512,111 @@ export default function DroneTracingShotStudio({
         </div>
       )}
 
-      {/* ── Ideation ── */}
-      {step === 'ideation' && (
+      {/* ── Photo: the Pinterest image IS the world still ── */}
+      {step === 'image' && (
         <>
-          <SurrealIdeationStep
-            onComplete={handleIdeationComplete}
-            onBack={onBack}
-            stillMode="aerial"
-          />
+          <div className="card space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-white tracking-tight">Real photo</h2>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Paste a Pinterest link or upload a photo — the drone flies through this exact scene.
+                </p>
+              </div>
+              {onBack && (
+                <button type="button" onClick={onBack} className="text-xs text-gray-500 hover:text-white flex-shrink-0">
+                  All templates
+                </button>
+              )}
+            </div>
+
+            {/* Pinterest / image URL + photo upload */}
+            <div className="flex gap-2">
+              <input
+                id="inspo-url"
+                type="url"
+                value={rawUrl}
+                onChange={(e) => setRawUrl(e.target.value)}
+                className="input-field text-sm flex-1"
+                placeholder="Paste a pin.it / pinterest.com URL, or upload a photo…"
+              />
+              <label
+                className={`flex items-center px-4 rounded-xl border border-gray-800 text-xs font-medium whitespace-nowrap transition-all touch-manipulation ${
+                  uploading
+                    ? 'text-gray-600 cursor-wait'
+                    : 'text-gray-300 cursor-pointer hover:border-gray-600 hover:text-white active:scale-95'
+                }`}
+              >
+                {uploading ? 'Uploading…' : 'Upload'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    void handleUploadFile(e.target.files?.[0] ?? null);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Photo preview — full width */}
+            {(resolving || resolvedUrl || thumbError) && (
+              <div className="w-full rounded-2xl overflow-hidden bg-gray-950 border border-gray-800">
+                {resolving ? (
+                  <div className="h-48 flex items-center justify-center">
+                    <div className="w-6 h-6 border-2 border-[#D1FE17] border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : thumbError ? (
+                  <div className="h-20 flex items-center justify-center px-4">
+                    <p className="text-xs text-red-400 text-center">{thumbError}</p>
+                  </div>
+                ) : resolvedUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={toDisplayImageUrl(resolvedUrl)}
+                    alt="Inspiration photo"
+                    className="w-full max-h-72 object-contain"
+                    onError={() => setThumbError('Thumbnail failed to load — try a direct pinimg.com URL')}
+                  />
+                ) : null}
+              </div>
+            )}
+
+            {/* Settings row */}
+            <div className="grid grid-cols-2 gap-3">
+              <DurationSelect value={duration} onChange={setDuration} />
+              <div>
+                <p className="text-xs text-gray-500 font-medium mb-1.5">Resolution</p>
+                <div className="flex gap-2">
+                  {(['720p', '480p'] as const).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setResolution(r)}
+                      className={`flex-1 px-3 py-2 rounded-xl text-xs font-medium border-2 transition-all ${
+                        resolution === r
+                          ? 'border-[#D1FE17] bg-[#D1FE17]/10 text-[#D1FE17]'
+                          : 'border-gray-800 text-gray-500'
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleUsePhoto}
+              disabled={resolving || uploading || !resolvedUrl}
+              className="w-full btn-primary disabled:opacity-40 text-sm py-3"
+            >
+              Draw flight path →
+            </button>
+          </div>
 
           {/* Recent drone shots (only on a fresh start) */}
           {isFreshProject && recentProjects.length > 0 && (
@@ -487,7 +631,7 @@ export default function DroneTracingShotStudio({
                   >
                     <div className="min-w-0">
                       <p className="text-sm text-white font-medium truncate">
-                        {project.title || 'Untitled drone shot'}
+                        {project.title || 'Drone shot'}
                       </p>
                       <p className="text-xs text-gray-500 mt-0.5">
                         {project.hasVideo ? 'Video ready' : 'In progress'}
@@ -502,102 +646,6 @@ export default function DroneTracingShotStudio({
             </div>
           )}
         </>
-      )}
-
-      {/* ── World still ── */}
-      {step === 'world' && ideation && (
-        <div className="card space-y-4">
-          <div>
-            <h2 className="text-sm font-semibold text-white">{ideation.suggestion.title}</h2>
-            <p className="text-xs text-[#D1FE17] mt-1 uppercase tracking-wide">
-              {ideation.suggestion.scale} · {ideation.topic}
-            </p>
-          </div>
-
-          {aerialImageUrl && (
-            <div className="w-full rounded-2xl overflow-hidden border border-gray-800 bg-gray-950">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={toDisplayImageUrl(aerialImageUrl)}
-                alt="World still"
-                className="w-full object-contain max-h-[60vh]"
-              />
-            </div>
-          )}
-
-          {/* Settings row */}
-          <div className="grid grid-cols-2 gap-3">
-            <DurationSelect value={duration} onChange={setDuration} />
-            <div>
-              <p className="text-xs text-gray-500 font-medium mb-1.5">Resolution</p>
-              <div className="flex gap-2">
-                {(['720p', '480p'] as const).map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setResolution(r)}
-                    className={`flex-1 px-3 py-2 rounded-xl text-xs font-medium border-2 transition-all ${
-                      resolution === r
-                        ? 'border-[#D1FE17] bg-[#D1FE17]/10 text-[#D1FE17]'
-                        : 'border-gray-800 text-gray-500'
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Image model for regeneration */}
-          <div className="space-y-1.5">
-            <p className="text-xs text-gray-500 font-medium">Image model</p>
-            <ImageModelSelect value={imageModel} onChange={setImageModel} disabled={generatingImage} />
-          </div>
-
-          {/* Video model */}
-          <div className="space-y-1.5">
-            <p className="text-xs text-gray-500 font-medium">Video model</p>
-            <VideoModelSelect value={videoModel} onChange={setVideoModel} />
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setStep('ideation')}
-              className="px-3 py-2 text-xs text-gray-500 hover:text-white"
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              onClick={handleGenerateAerial}
-              disabled={generatingImage}
-              className="px-4 py-2 text-xs text-white border border-gray-700 rounded-xl disabled:opacity-40 active:scale-95 transition-all"
-            >
-              {generatingImage ? 'Regenerating…' : 'Regenerate'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!aerialImageUrl) { setError('High-quality still missing — go back and refine one'); return; }
-                setHasPath(false); setStep('draw');
-              }}
-              disabled={!aerialImageUrl}
-              className="flex-1 btn-primary disabled:opacity-40 text-sm py-2.5"
-            >
-              Draw path →
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={handleSkipPathForGrok}
-            disabled={!aerialImageUrl}
-            className="w-full px-4 py-2.5 text-xs text-gray-400 border border-gray-800 rounded-xl disabled:opacity-40 hover:border-gray-600 transition-all"
-          >
-            Skip path — use Grok Imagine
-          </button>
-        </div>
       )}
 
       {/* ── Draw path ── */}
@@ -628,18 +676,10 @@ export default function DroneTracingShotStudio({
             </button>
             <button
               type="button"
-              onClick={handleGenerateAerial}
-              disabled={generatingImage}
-              className="px-3 py-2 text-xs text-white border border-gray-800 rounded-xl disabled:opacity-40 transition-all"
-            >
-              {generatingImage ? 'Regenerating…' : 'Regen still'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setStep('world')}
+              onClick={() => setStep('image')}
               className="px-3 py-2 text-xs text-gray-500 hover:text-white"
             >
-              Back
+              Change photo
             </button>
           </div>
           <button
@@ -700,7 +740,7 @@ export default function DroneTracingShotStudio({
           </div>
 
           <div className="flex items-center justify-between text-[10px] text-gray-600">
-            <button type="button" onClick={() => setStep(annotatedImage || aerialImageUrl ? 'draw' : 'world')} className="hover:text-white">
+            <button type="button" onClick={() => setStep(aerialImageUrl ? 'draw' : 'image')} className="hover:text-white">
               Back
             </button>
             <span>{duration}s · {resolution} · {referenceSource === 'path' ? 'path ref' : 'original'}</span>
@@ -730,7 +770,7 @@ export default function DroneTracingShotStudio({
       {/* ── Video result ── */}
       {step === 'video' && (
         <div className="card space-y-4">
-          <h2 className="text-sm font-semibold text-white">Your surreal FPV shot</h2>
+          <h2 className="text-sm font-semibold text-white">Your FPV drone shot</h2>
           {generatingVideo || !videoUrl ? (
             <div className="max-w-sm mx-auto aspect-[9/16] bg-gray-950 rounded-2xl border border-gray-800 flex flex-col items-center justify-center gap-3">
               <div className="w-10 h-10 border-[3px] border-[#D1FE17] border-t-transparent rounded-full animate-spin" />

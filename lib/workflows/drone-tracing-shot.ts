@@ -17,6 +17,7 @@ Rules:
 - Language must be GENERIC — subjects, landmarks, zones, foreground, central focal subject, open space, height — NOT only buildings/skylines.
 - Each bullet starts without a leading "•" (the template adds it).
 - Never mention red lines, arrows, annotations, storyboards, or UI in the bullets.
+- Stay realistic: describe the real scene exactly as photographed — no surreal, fantasy, or stylized transformations.
 - Follow the drawn path's curves, climbs, spirals, and pullbacks exactly.
 - pathAnalysis: 2–4 sentences summarizing the route for the UI.`;
 
