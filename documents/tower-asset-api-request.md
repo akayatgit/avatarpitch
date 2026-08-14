@@ -47,6 +47,11 @@ with zero AvatarPitch changes.
 
 - Delete files under the assets root older than **48 hours** (your existing GC timer, retuned
   from 72h to 48h). Reels are re-renderable and drafts live on the phone, so nothing is lost.
+- **Exemption — `job-reel/library/` prefix (new, per Ashok's asset-library directive):** every
+  Pinterest background AvatarPitch resolves is now stored under `job-reel/library/…` and indexed
+  as a reusable content asset library. These must be **excluded from the 48h GC** (keep
+  indefinitely, or at minimum 90 days). Everything else (`job-reel/videos/`, `job-reel/status/`)
+  stays on the 48h sweep.
 
 ## What this replaces
 

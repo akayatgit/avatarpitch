@@ -29,9 +29,25 @@ export const JobReelCardSchema = z.object({
   role: z.string(),
   experience: z.string(),
   education: z.string(),
+  /** Optional per-section background (falls back to the default background). */
+  backgroundUrl: z.string().nullable().default(null),
+  backgroundType: z.enum(['video', 'image']).nullable().default(null),
 });
 
 export type JobReelCard = z.infer<typeof JobReelCardSchema>;
+
+/** Final section — like/follow/comment CTA. All lines editable. */
+export const JobReelCtaSchema = z.object({
+  enabled: z.boolean().default(true),
+  line1: z.string().default('Like, Follow & Comment for links'),
+  line2: z.string().default('Join our Instagram channel for instant alerts'),
+  line3: z.string().default('Channel link in bio'),
+  durationSec: z.number().min(2).max(10).default(3),
+  backgroundUrl: z.string().nullable().default(null),
+  backgroundType: z.enum(['video', 'image']).nullable().default(null),
+});
+
+export type JobReelCta = z.infer<typeof JobReelCtaSchema>;
 
 export const JOB_REEL_RENDER_STATUSES = ['idle', 'rendering', 'completed', 'failed'] as const;
 export type JobReelRenderStatus = (typeof JOB_REEL_RENDER_STATUSES)[number];
@@ -45,7 +61,13 @@ export const JobReelStateSchema = z.object({
   backgroundUrl: z.string().nullable(),
   backgroundType: z.enum(['video', 'image']).nullable(),
   hook: JobReelHookSchema,
+  /** Optional hook-section background (falls back to the default background). */
+  hookBackgroundUrl: z.string().nullable().default(null),
+  hookBackgroundType: z.enum(['video', 'image']).nullable().default(null),
+  /** Staged reveal: banner+headline at 0s, subtitle+hint from this second. */
+  hookRevealSec: z.number().min(0.5).max(9).default(1.5),
   cards: z.array(JobReelCardSchema).min(1).max(MAX_JOB_CARDS),
+  cta: JobReelCtaSchema.default({}),
   hookDurationSec: z.number().min(MIN_SECTION_SECONDS).max(MAX_SECTION_SECONDS),
   cardDurationSec: z.number().min(MIN_SECTION_SECONDS).max(MAX_SECTION_SECONDS),
   renderStatus: z.enum(JOB_REEL_RENDER_STATUSES).default('idle'),
@@ -78,6 +100,8 @@ export function createJobReelCard(): JobReelCard {
     role: '',
     experience: '',
     education: '',
+    backgroundUrl: null,
+    backgroundType: null,
   };
 }
 
@@ -97,8 +121,12 @@ export function createEmptyJobReelState(): JobReelState {
       subtitle: 'These companies are actively hiring candidates like you right now.',
       hint: '0-2 yrs exp',
     },
+    hookBackgroundUrl: null,
+    hookBackgroundType: null,
+    hookRevealSec: 1.5,
     cards: [createJobReelCard()],
-    hookDurationSec: 4,
+    cta: JobReelCtaSchema.parse({}),
+    hookDurationSec: 3,
     cardDurationSec: 3,
     renderStatus: 'idle',
     renderError: null,
@@ -122,7 +150,11 @@ export function usableCards(state: JobReelState): JobReelCard[] {
 }
 
 export function totalDurationSec(state: JobReelState): number {
-  return state.hookDurationSec + usableCards(state).length * state.cardDurationSec;
+  return (
+    state.hookDurationSec +
+    usableCards(state).length * state.cardDurationSec +
+    (state.cta.enabled ? state.cta.durationSec : 0)
+  );
 }
 
 /** Project title shown in lists — derived from the hook headline. */
