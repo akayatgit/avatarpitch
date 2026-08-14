@@ -188,7 +188,12 @@ export default function JobReelWizard() {
         <BackgroundStep state={state} updateState={updateState} goToStep={goToStep} />
       )}
       {currentStep === 2 && (
-        <HookStep state={state} updateHook={updateHook} goToStep={goToStep} />
+        <HookStep
+          state={state}
+          updateHook={updateHook}
+          updateState={updateState}
+          goToStep={goToStep}
+        />
       )}
       {currentStep === 3 && (
         <JobCardsStep

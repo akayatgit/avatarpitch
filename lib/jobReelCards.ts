@@ -11,8 +11,12 @@ import {
   JOB_REEL_HEIGHT,
   JOB_REEL_WIDTH,
   type JobReelCard,
+  type JobReelCta,
   type JobReelHook,
 } from './jobReel';
+
+/** Which elements of the hook are visible (staged reveal in the final video). */
+export type HookStage = 'top' | 'full';
 
 const FONT_FAMILY = 'Switzer, system-ui, -apple-system, sans-serif';
 
@@ -164,20 +168,11 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('Failed to render the overlay'))),
-      'image/png'
-    );
-  });
-}
-
 /* ------------------------------------------------------------------ */
 /* Section 1 — hook overlay                                            */
 /* ------------------------------------------------------------------ */
 
-function drawHookOverlay(ctx: CanvasRenderingContext2D, hook: JobReelHook) {
+function drawHookOverlay(ctx: CanvasRenderingContext2D, hook: JobReelHook, stage: HookStage) {
   // Dim baked into the overlay so ffmpeg only has to composite one PNG
   ctx.fillStyle = THEME.hookDim;
   ctx.fillRect(0, 0, JOB_REEL_WIDTH, JOB_REEL_HEIGHT);
@@ -186,6 +181,9 @@ function drawHookOverlay(ctx: CanvasRenderingContext2D, hook: JobReelHook) {
   const headline = hook.headline.trim();
   const subtitle = hook.subtitle.trim();
   const hint = hook.hint.trim();
+  // 'top' shows only banner + headline, but the layout is measured with ALL
+  // blocks so nothing shifts when the subtitle + hint pop in mid-section
+  const showRest = stage === 'full';
 
   const GAP = 64;
 
@@ -231,19 +229,21 @@ function drawHookOverlay(ctx: CanvasRenderingContext2D, hook: JobReelHook) {
   }
 
   if (subtitle) {
-    drawTextBox(ctx, {
-      text: subtitle,
-      centerY: cursorY + subtitleHeight / 2,
-      fontSize: 32,
-      textColor: THEME.black,
-      boxColor: THEME.yellow,
-      maxTextWidth: 480,
-      paddingY: 22,
-    });
+    if (showRest) {
+      drawTextBox(ctx, {
+        text: subtitle,
+        centerY: cursorY + subtitleHeight / 2,
+        fontSize: 32,
+        textColor: THEME.black,
+        boxColor: THEME.yellow,
+        maxTextWidth: 480,
+        paddingY: 22,
+      });
+    }
     cursorY += subtitleHeight + GAP;
   }
 
-  if (hint) {
+  if (hint && showRest) {
     drawTextBox(ctx, {
       text: hint,
       centerY: cursorY + hintHeight / 2,
@@ -255,10 +255,87 @@ function drawHookOverlay(ctx: CanvasRenderingContext2D, hook: JobReelHook) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Final section — CTA overlay                                         */
+/* ------------------------------------------------------------------ */
+
+function drawCtaOverlay(ctx: CanvasRenderingContext2D, cta: JobReelCta) {
+  ctx.fillStyle = THEME.cardDim;
+  ctx.fillRect(0, 0, JOB_REEL_WIDTH, JOB_REEL_HEIGHT);
+
+  const line1 = cta.line1.trim();
+  const line2 = cta.line2.trim();
+  const line3 = cta.line3.trim();
+
+  const GAP = 56;
+  const h1 = line1
+    ? measureTextBox(ctx, { text: line1, fontSize: 46, maxTextWidth: 520, paddingY: 26 })
+    : 0;
+  const h2 = line2
+    ? measureTextBox(ctx, { text: line2, fontSize: 34, maxTextWidth: 500, paddingY: 22 })
+    : 0;
+  const h3 = line3 ? measureTextBox(ctx, { text: line3, fontSize: 34, maxTextWidth: 500 }) : 0;
+
+  const blocks = [h1, h2, h3].filter((h) => h > 0);
+  const stackHeight = blocks.reduce((sum, h) => sum + h, 0) + Math.max(0, blocks.length - 1) * GAP;
+  let cursorY = (JOB_REEL_HEIGHT - stackHeight) / 2;
+
+  if (line1) {
+    drawTextBox(ctx, {
+      text: line1,
+      centerY: cursorY + h1 / 2,
+      fontSize: 46,
+      textColor: THEME.black,
+      boxColor: THEME.white,
+      maxTextWidth: 520,
+      paddingY: 26,
+    });
+    cursorY += h1 + GAP;
+  }
+  if (line2) {
+    drawTextBox(ctx, {
+      text: line2,
+      centerY: cursorY + h2 / 2,
+      fontSize: 34,
+      textColor: THEME.black,
+      boxColor: THEME.yellow,
+      maxTextWidth: 500,
+      paddingY: 22,
+    });
+    cursorY += h2 + GAP;
+  }
+  if (line3) {
+    drawTextBox(ctx, {
+      text: line3,
+      centerY: cursorY + h3 / 2,
+      fontSize: 34,
+      textColor: THEME.red,
+      boxColor: THEME.white,
+      maxTextWidth: 500,
+    });
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Sections 2..N — job card overlay                                    */
 /* ------------------------------------------------------------------ */
 
-async function drawJobCardOverlay(ctx: CanvasRenderingContext2D, card: JobReelCard) {
+export interface LogoRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Draw the job card overlay. With `includeLogo: false` the logo tile is left
+ * out (its space is preserved) and its frame position is returned, so the
+ * render pipeline can animate the logo in as a separate layer.
+ */
+async function drawJobCardOverlay(
+  ctx: CanvasRenderingContext2D,
+  card: JobReelCard,
+  includeLogo = true
+): Promise<{ logo: HTMLImageElement | null; logoRect: LogoRect | null }> {
   ctx.fillStyle = THEME.cardDim;
   ctx.fillRect(0, 0, JOB_REEL_WIDTH, JOB_REEL_HEIGHT);
 
@@ -322,66 +399,117 @@ async function drawJobCardOverlay(ctx: CanvasRenderingContext2D, card: JobReelCa
   );
   const totalHeight = stackHeight + Math.max(0, rows.length - 1) * GAP;
   let cursorY = (JOB_REEL_HEIGHT - totalHeight) / 2;
+  let logoRect: LogoRect | null = null;
 
   for (const row of rows) {
     if (row.kind === 'logo' && logo) {
       const boxX = (JOB_REEL_WIDTH - LOGO_BOX_WIDTH) / 2;
-      ctx.save();
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-      ctx.shadowBlur = 18;
-      ctx.shadowOffsetY = 6;
-      ctx.fillStyle = THEME.white;
-      roundRectPath(ctx, boxX, cursorY, LOGO_BOX_WIDTH, LOGO_BOX_HEIGHT, THEME.boxRadius);
-      ctx.fill();
-      ctx.restore();
-
-      // Fit the logo inside the white box with padding, preserving aspect ratio
-      const pad = 24;
-      const maxW = LOGO_BOX_WIDTH - pad * 2;
-      const maxH = LOGO_BOX_HEIGHT - pad * 2;
-      const scale = Math.min(maxW / logo.width, maxH / logo.height);
-      const drawW = logo.width * scale;
-      const drawH = logo.height * scale;
-      ctx.drawImage(
-        logo,
-        (JOB_REEL_WIDTH - drawW) / 2,
-        cursorY + (LOGO_BOX_HEIGHT - drawH) / 2,
-        drawW,
-        drawH
-      );
+      logoRect = { x: boxX, y: cursorY, width: LOGO_BOX_WIDTH, height: LOGO_BOX_HEIGHT };
+      if (includeLogo) {
+        drawLogoTile(ctx, logo, boxX, cursorY, LOGO_BOX_WIDTH, LOGO_BOX_HEIGHT);
+      }
       cursorY += LOGO_BOX_HEIGHT + GAP;
     } else if (row.kind === 'box') {
       drawTextBox(ctx, { ...row.options, centerY: cursorY + row.height / 2 });
       cursorY += row.height + GAP;
     }
   }
+
+  return { logo, logoRect };
+}
+
+/** The white rounded tile with the logo fitted inside — one drawing, two uses. */
+function drawLogoTile(
+  ctx: CanvasRenderingContext2D,
+  logo: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number
+) {
+  ctx.save();
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 6;
+  ctx.fillStyle = THEME.white;
+  roundRectPath(ctx, x, y, width, height, THEME.boxRadius);
+  ctx.fill();
+  ctx.restore();
+
+  // Fit the logo inside the white box with padding, preserving aspect ratio
+  const pad = 24;
+  const maxW = width - pad * 2;
+  const maxH = height - pad * 2;
+  const scale = Math.min(maxW / logo.width, maxH / logo.height);
+  const drawW = logo.width * scale;
+  const drawH = logo.height * scale;
+  ctx.drawImage(logo, x + (width - drawW) / 2, y + (height - drawH) / 2, drawW, drawH);
 }
 
 /* ------------------------------------------------------------------ */
 /* Public API                                                          */
 /* ------------------------------------------------------------------ */
 
-export async function renderHookOverlayBlob(hook: JobReelHook): Promise<Blob> {
+/** Hook overlay — 'top' (banner + headline) or 'full' (everything). */
+export function renderHookOverlayDataUrl(hook: JobReelHook, stage: HookStage = 'full'): string {
   const { canvas, ctx } = createCanvas();
-  drawHookOverlay(ctx, hook);
-  return canvasToBlob(canvas);
-}
-
-export async function renderJobCardOverlayBlob(card: JobReelCard): Promise<Blob> {
-  const { canvas, ctx } = createCanvas();
-  await drawJobCardOverlay(ctx, card);
-  return canvasToBlob(canvas);
-}
-
-/** Data-URL variants used for the live previews in the wizard. */
-export function renderHookOverlayDataUrl(hook: JobReelHook): string {
-  const { canvas, ctx } = createCanvas();
-  drawHookOverlay(ctx, hook);
+  drawHookOverlay(ctx, hook, stage);
   return canvas.toDataURL('image/png');
 }
 
+/** Full composite card — used for the live previews in the wizard. */
 export async function renderJobCardOverlayDataUrl(card: JobReelCard): Promise<string> {
   const { canvas, ctx } = createCanvas();
-  await drawJobCardOverlay(ctx, card);
+  await drawJobCardOverlay(ctx, card, true);
   return canvas.toDataURL('image/png');
+}
+
+/** CTA overlay — final like/follow/comment section. */
+export function renderCtaOverlayDataUrl(cta: JobReelCta): string {
+  const { canvas, ctx } = createCanvas();
+  drawCtaOverlay(ctx, cta);
+  return canvas.toDataURL('image/png');
+}
+
+export interface JobCardRenderParts {
+  /** Card overlay WITHOUT the logo tile (its space is preserved). */
+  overlayDataUrl: string;
+  /** Separate logo tile layer for the ffmpeg pop-in animation. */
+  logo: { dataUrl: string; x: number; y: number } | null;
+}
+
+/** Margin around the logo tile canvas so its drop shadow isn't clipped. */
+const LOGO_TILE_MARGIN = 30;
+
+/**
+ * Render the two layers of a job card section: the static overlay (sans logo)
+ * and the logo tile as its own small PNG with frame coordinates, so the server
+ * can animate the logo in with easing.
+ */
+export async function renderJobCardParts(card: JobReelCard): Promise<JobCardRenderParts> {
+  const { canvas, ctx } = createCanvas();
+  const { logo, logoRect } = await drawJobCardOverlay(ctx, card, false);
+  const overlayDataUrl = canvas.toDataURL('image/png');
+
+  if (!logo || !logoRect) {
+    return { overlayDataUrl, logo: null };
+  }
+
+  const tile = document.createElement('canvas');
+  tile.width = logoRect.width + LOGO_TILE_MARGIN * 2;
+  tile.height = logoRect.height + LOGO_TILE_MARGIN * 2;
+  const tileCtx = tile.getContext('2d');
+  if (!tileCtx) {
+    return { overlayDataUrl, logo: null };
+  }
+  drawLogoTile(tileCtx, logo, LOGO_TILE_MARGIN, LOGO_TILE_MARGIN, logoRect.width, logoRect.height);
+
+  return {
+    overlayDataUrl,
+    logo: {
+      dataUrl: tile.toDataURL('image/png'),
+      x: logoRect.x - LOGO_TILE_MARGIN,
+      y: logoRect.y - LOGO_TILE_MARGIN,
+    },
+  };
 }

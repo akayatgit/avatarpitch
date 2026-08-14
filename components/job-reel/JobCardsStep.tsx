@@ -18,10 +18,12 @@ import {
   duplicateJobReelCard,
   usableCards,
   type JobReelCard,
+  type JobReelCta,
   type JobReelState,
 } from '@/lib/jobReel';
-import { renderJobCardOverlayDataUrl } from '@/lib/jobReelCards';
+import { renderCtaOverlayDataUrl, renderJobCardOverlayDataUrl } from '@/lib/jobReelCards';
 import SectionPreview from './SectionPreview';
+import SectionBackgroundPicker from './SectionBackgroundPicker';
 import TowerFillPanel, { type TowerCardData } from './TowerFillPanel';
 
 interface JobCardsStepProps {
@@ -76,11 +78,142 @@ function CardPreview({
 
   return (
     <SectionPreview
-      backgroundUrl={state.backgroundUrl}
-      backgroundType={state.backgroundType}
+      backgroundUrl={card.backgroundUrl ?? state.backgroundUrl}
+      backgroundType={card.backgroundUrl ? card.backgroundType : state.backgroundType}
       overlayDataUrl={previewUrl}
       className="mt-3"
     />
+  );
+}
+
+/** Final CTA section editor — like/follow/comment, all lines editable. */
+function CtaPanel({
+  state,
+  updateState,
+}: {
+  state: JobReelState;
+  updateState: (patch: Partial<JobReelState>) => void;
+}) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const cta = state.cta;
+
+  const updateCta = (patch: Partial<JobReelCta>) => {
+    updateState({ cta: { ...cta, ...patch } });
+  };
+
+  useEffect(() => {
+    if (!previewOpen) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        await (document as any).fonts?.ready;
+        const dataUrl = renderCtaOverlayDataUrl(cta);
+        if (!cancelled) setPreviewUrl(dataUrl);
+      } catch (error) {
+        console.error('CTA preview failed:', error);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [cta, previewOpen]);
+
+  const FIELDS: Array<{ key: 'line1' | 'line2' | 'line3'; label: string }> = [
+    { key: 'line1', label: 'Line 1 (white box)' },
+    { key: 'line2', label: 'Line 2 (yellow box)' },
+    { key: 'line3', label: 'Line 3 (red text)' },
+  ];
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-white font-medium">Final CTA card</p>
+        <button
+          type="button"
+          onClick={() => updateCta({ enabled: !cta.enabled })}
+          className={`text-[11px] px-3 py-1.5 rounded-full border touch-manipulation ${
+            cta.enabled
+              ? 'border-[#D1FE17] text-[#D1FE17] bg-[#D1FE17]/10'
+              : 'border-gray-700 text-gray-400'
+          }`}
+        >
+          {cta.enabled ? 'On' : 'Off'}
+        </button>
+      </div>
+
+      {cta.enabled && (
+        <>
+          {FIELDS.map((field) => (
+            <div key={field.key}>
+              <label className="text-[11px] text-gray-400 font-medium block mb-1">
+                {field.label}
+              </label>
+              <input
+                type="text"
+                value={cta[field.key]}
+                onChange={(e) => updateCta({ [field.key]: e.target.value })}
+                className="input-field text-sm min-h-[44px]"
+              />
+            </div>
+          ))}
+
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-300">CTA duration</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => updateCta({ durationSec: Math.max(2, cta.durationSec - 1) })}
+                disabled={cta.durationSec <= 2}
+                className="w-9 h-9 rounded-lg border border-gray-700 text-gray-300 flex items-center justify-center disabled:opacity-30 touch-manipulation"
+              >
+                −
+              </button>
+              <span className="text-sm text-white font-semibold w-8 text-center">
+                {cta.durationSec}s
+              </span>
+              <button
+                type="button"
+                onClick={() => updateCta({ durationSec: Math.min(10, cta.durationSec + 1) })}
+                disabled={cta.durationSec >= 10}
+                className="w-9 h-9 rounded-lg border border-gray-700 text-gray-300 flex items-center justify-center disabled:opacity-30 touch-manipulation"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <SectionBackgroundPicker
+            currentUrl={cta.backgroundUrl}
+            currentType={cta.backgroundType}
+            onChange={(background) =>
+              updateCta({
+                backgroundUrl: background?.url ?? null,
+                backgroundType: background?.type ?? null,
+              })
+            }
+          />
+
+          <button
+            type="button"
+            onClick={() => setPreviewOpen((prev) => !prev)}
+            className="flex items-center gap-1.5 text-[11px] text-gray-400 hover:text-gray-200 touch-manipulation"
+          >
+            {previewOpen ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            {previewOpen ? 'Hide preview' : 'Preview CTA card'}
+          </button>
+          {previewOpen && (
+            <SectionPreview
+              backgroundUrl={cta.backgroundUrl ?? state.backgroundUrl}
+              backgroundType={cta.backgroundUrl ? cta.backgroundType : state.backgroundType}
+              overlayDataUrl={previewUrl}
+              className="mt-1"
+            />
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -300,6 +433,18 @@ export default function JobCardsStep({
               </p>
             )}
 
+            {/* Optional per-section background */}
+            <SectionBackgroundPicker
+              currentUrl={card.backgroundUrl}
+              currentType={card.backgroundType}
+              onChange={(background) =>
+                updateCard(card.id, {
+                  backgroundUrl: background?.url ?? null,
+                  backgroundType: background?.type ?? null,
+                })
+              }
+            />
+
             <button
               type="button"
               onClick={() =>
@@ -324,6 +469,8 @@ export default function JobCardsStep({
         <Plus className="w-4 h-4" />
         Add job card
       </button>
+
+      <CtaPanel state={state} updateState={updateState} />
 
       <button
         type="button"

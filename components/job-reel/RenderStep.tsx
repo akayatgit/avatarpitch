@@ -10,7 +10,19 @@ import {
   usableCards,
   type JobReelState,
 } from '@/lib/jobReel';
-import { renderHookOverlayDataUrl, renderJobCardOverlayDataUrl } from '@/lib/jobReelCards';
+import {
+  renderCtaOverlayDataUrl,
+  renderHookOverlayDataUrl,
+  renderJobCardParts,
+} from '@/lib/jobReelCards';
+
+interface RenderSectionPayload {
+  durationSec: number;
+  overlays: Array<{ overlayDataUrl: string; fromSec?: number; toSec?: number }>;
+  logo?: { dataUrl: string; x: number; y: number } | null;
+  backgroundUrl?: string | null;
+  backgroundType?: 'video' | 'image' | null;
+}
 
 interface RenderStepProps {
   state: JobReelState;
@@ -114,14 +126,57 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
       // Make sure the browser fonts are in before rasterizing the overlays
       await (document as any).fonts?.ready;
 
-      setPrepareProgress(`Preparing section 1/${cards.length + 1}…`);
-      const sections: Array<{ overlayDataUrl: string; durationSec: number }> = [
-        { overlayDataUrl: renderHookOverlayDataUrl(state.hook), durationSec: state.hookDurationSec },
+      const ctaOn = state.cta.enabled && Boolean(
+        state.cta.line1.trim() || state.cta.line2.trim() || state.cta.line3.trim()
+      );
+      const sectionCount = cards.length + 1 + (ctaOn ? 1 : 0);
+
+      // Section 1 — staged hook: banner + headline from 0s, the subtitle +
+      // hint pop in at the configured reveal second
+      setPrepareProgress(`Preparing section 1/${sectionCount}…`);
+      const revealSec = Math.min(state.hookRevealSec, state.hookDurationSec - 0.5);
+      const hasReveal = Boolean(state.hook.subtitle.trim() || state.hook.hint.trim());
+      const hookOverlays = hasReveal
+        ? [
+            {
+              overlayDataUrl: renderHookOverlayDataUrl(state.hook, 'top'),
+              fromSec: 0,
+              toSec: revealSec,
+            },
+            { overlayDataUrl: renderHookOverlayDataUrl(state.hook, 'full'), fromSec: revealSec },
+          ]
+        : [{ overlayDataUrl: renderHookOverlayDataUrl(state.hook, 'full') }];
+      const sections: RenderSectionPayload[] = [
+        {
+          durationSec: state.hookDurationSec,
+          overlays: hookOverlays,
+          backgroundUrl: state.hookBackgroundUrl,
+          backgroundType: state.hookBackgroundType,
+        },
       ];
+
+      // Job cards — overlay sans logo + separate logo tile for the pop-in
       for (let index = 0; index < cards.length; index++) {
-        setPrepareProgress(`Preparing section ${index + 2}/${cards.length + 1}…`);
-        const overlayDataUrl = await renderJobCardOverlayDataUrl(cards[index]);
-        sections.push({ overlayDataUrl, durationSec: state.cardDurationSec });
+        setPrepareProgress(`Preparing section ${index + 2}/${sectionCount}…`);
+        const parts = await renderJobCardParts(cards[index]);
+        sections.push({
+          durationSec: state.cardDurationSec,
+          overlays: [{ overlayDataUrl: parts.overlayDataUrl }],
+          logo: parts.logo,
+          backgroundUrl: cards[index].backgroundUrl,
+          backgroundType: cards[index].backgroundType,
+        });
+      }
+
+      // Final CTA card
+      if (ctaOn) {
+        setPrepareProgress(`Preparing section ${sectionCount}/${sectionCount}…`);
+        sections.push({
+          durationSec: state.cta.durationSec,
+          overlays: [{ overlayDataUrl: renderCtaOverlayDataUrl(state.cta) }],
+          backgroundUrl: state.cta.backgroundUrl,
+          backgroundType: state.cta.backgroundType,
+        });
       }
 
       const ticket = `reel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -140,8 +195,10 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ticket,
-          backgroundUrl: state.backgroundUrl,
-          backgroundType: state.backgroundType ?? 'video',
+          background: {
+            url: state.backgroundUrl,
+            type: state.backgroundType ?? 'video',
+          },
           sections,
         }),
       })
@@ -174,7 +231,7 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
       {/* Summary + durations */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
         <p className="text-sm text-white font-medium">
-          {cards.length + 1} sections · ~{totalSeconds}s video
+          {cards.length + 1 + (state.cta.enabled ? 1 : 0)} sections · ~{totalSeconds}s video
         </p>
         <DurationStepper
           label="Hook section duration"
@@ -186,6 +243,10 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
           value={state.cardDurationSec}
           onChange={(value) => updateState({ cardDurationSec: value })}
         />
+        <p className="text-[11px] text-gray-500">
+          Hook reveal timing is on the hook step; the CTA card and per-section backgrounds are on
+          the job cards step.
+        </p>
       </div>
 
       {/* Render / status / result */}

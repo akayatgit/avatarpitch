@@ -47,7 +47,9 @@ export async function POST(request: NextRequest) {
     const contentType =
       response.headers.get('content-type') || (isVideo ? 'video/mp4' : 'image/jpeg');
     const extension = isVideo ? 'mp4' : 'jpg';
-    const key = `job-reel/backgrounds/bg-${Date.now()}-${Math.random()
+    // `library/` prefix: these are reusable asset-library backgrounds
+    // (GC exemption requested from the tower for this prefix)
+    const key = `job-reel/library/bg-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 10)}.${extension}`;
 

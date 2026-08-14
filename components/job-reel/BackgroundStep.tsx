@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ArrowRight, ClipboardPaste, Link2, Loader2, RefreshCw } from 'lucide-react';
 import type { JobReelState } from '@/lib/jobReel';
+import { addLibraryAsset } from '@/lib/assetLibrary';
 
 interface BackgroundStepProps {
   state: JobReelState;
@@ -33,10 +34,14 @@ export default function BackgroundStep({ state, updateState, goToStep }: Backgro
       if (!response.ok || !data?.backgroundUrl) {
         throw new Error(data?.error || 'Could not download that background');
       }
+      const backgroundType: 'video' | 'image' =
+        data.backgroundType === 'image' ? 'image' : 'video';
+      // Every fetched background joins the asset library for future reels
+      addLibraryAsset({ url: data.backgroundUrl, type: backgroundType, sourceUrl: trimmed });
       updateState({
         backgroundSourceUrl: trimmed,
         backgroundUrl: data.backgroundUrl,
-        backgroundType: data.backgroundType === 'image' ? 'image' : 'video',
+        backgroundType,
         // A new background invalidates any previously rendered video
         finalVideoUrl: null,
         renderStatus: 'idle',
@@ -68,10 +73,10 @@ export default function BackgroundStep({ state, updateState, goToStep }: Backgro
   return (
     <div className="space-y-4">
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
-        <p className="text-sm text-white font-medium">Background video from Pinterest</p>
+        <p className="text-sm text-white font-medium">Default background from Pinterest</p>
         <p className="text-xs text-gray-500">
           Copy any pin link in the Pinterest app (Share → Copy link), then tap Paste. The video
-          downloads automatically.
+          downloads automatically and joins your asset library. Each section can override it later.
         </p>
 
         <button
