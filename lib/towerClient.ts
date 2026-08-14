@@ -4,7 +4,9 @@
  * logic, freshness rules, and dedupe live tower-side behind /api/partner/v1).
  */
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8001/api/partner/v1';
+// AvatarPitch never runs on the ThinkPad (Ashok's ruling) — the tower is
+// reached over its public tunnel hostname. Override via TOWER_API_BASE_URL.
+const DEFAULT_BASE_URL = 'https://tower.jobmaster.agency/api/partner/v1';
 const REQUEST_TIMEOUT_MS = 10_000;
 
 export const TOWER_EXPERIENCE_BANDS = [
