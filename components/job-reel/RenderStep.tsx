@@ -1,7 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Clapperboard, Download, Loader2, Minus, Plus, RefreshCw, Smartphone } from 'lucide-react';
+import {
+  Clapperboard,
+  Download,
+  FileText,
+  Loader2,
+  Minus,
+  Plus,
+  RefreshCw,
+  Smartphone,
+} from 'lucide-react';
+import { generateJobReelPdfBlob } from '@/lib/jobReelPdf';
 import {
   MAX_SECTION_SECONDS,
   MIN_SECTION_SECONDS,
@@ -69,6 +79,8 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
   const [preparing, setPreparing] = useState(false);
   const [prepareProgress, setPrepareProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -222,9 +234,31 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
     }
   };
 
-  const downloadName = `${(state.hook.headline.trim() || 'job-reel')
+  const baseName = (state.hook.headline.trim() || 'job-reel')
     .replace(/[^a-zA-Z0-9]+/g, '-')
-    .toLowerCase()}-reel.mp4`;
+    .toLowerCase();
+  const downloadName = `${baseName}-reel.mp4`;
+
+  /** The shareable PDF: job cards + apply links, sent to viewers who comment. */
+  const downloadPdf = async () => {
+    setPdfBusy(true);
+    setPdfError(null);
+    try {
+      const blob = await generateJobReelPdfBlob(state);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `${baseName}-job-links.pdf`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'Could not create the PDF');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   // Tower URLs are cross-origin, so the anchor `download` attribute is ignored
   // and iPhones just play the video in a new tab. Route those through our
@@ -280,17 +314,32 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
             </a>
             <button
               type="button"
-              disabled={preparing}
-              onClick={startRender}
-              className="btn-secondary flex items-center justify-center gap-2 text-sm py-2.5 px-4 min-h-[48px] disabled:opacity-40 touch-manipulation"
+              disabled={pdfBusy}
+              onClick={() => void downloadPdf()}
+              className="btn-secondary flex-1 flex items-center justify-center gap-2 text-sm py-2.5 min-h-[48px] disabled:opacity-40 touch-manipulation"
             >
-              <RefreshCw className="w-4 h-4" />
-              Re-render
+              {pdfBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              PDF with links
             </button>
           </div>
+          <button
+            type="button"
+            disabled={preparing}
+            onClick={startRender}
+            className="btn-secondary w-full flex items-center justify-center gap-2 text-sm py-2.5 min-h-[44px] disabled:opacity-40 touch-manipulation"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Re-render
+          </button>
+          {pdfError && (
+            <p className="text-xs text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">
+              {pdfError}
+            </p>
+          )}
           <p className="text-[11px] text-gray-500">
-            Download within 48 hours — rendered files are auto-cleaned after that. You can always
-            re-render this draft.
+            Download the video within 48 hours — rendered files are auto-cleaned after that. The
+            PDF lists every job card with its apply link — send it to viewers who comment. You can
+            always re-render this draft.
           </p>
         </div>
       ) : isRendering ? (

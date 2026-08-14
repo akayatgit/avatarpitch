@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   ImagePlus,
+  Link as LinkIcon,
   Loader2,
   Plus,
   Trash2,
@@ -307,6 +308,7 @@ export default function JobCardsStep({
       role: towerCard.role ?? '',
       experience: towerCard.experience ?? '',
       education: towerCard.education ?? '',
+      applyUrl: towerCard.applyUrl ?? '',
     }));
     updateState({ cards: [...existingUsable, ...mapped].slice(0, MAX_JOB_CARDS) });
   };
@@ -444,6 +446,26 @@ export default function JobCardsStep({
                 })
               }
             />
+
+            {/* Apply link — goes into the shareable PDF, never the video */}
+            <div>
+              <label className="text-[11px] text-gray-400 font-medium mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <LinkIcon className="w-3 h-3" />
+                  Apply link
+                </span>
+                <span className="text-[10px] text-gray-500">for the PDF — not shown in video</span>
+              </label>
+              <input
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                value={card.applyUrl}
+                onChange={(e) => updateCard(card.id, { applyUrl: e.target.value })}
+                placeholder="https://careers.company.com/job/…"
+                className="input-field text-sm min-h-[44px]"
+              />
+            </div>
 
             <button
               type="button"
