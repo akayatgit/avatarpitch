@@ -91,6 +91,11 @@ export default function DroneTracingShotStudio({
   // Skip the resolve round-trip for URLs we already know are direct (restored / uploaded)
   const preResolvedRef = useRef<string | null>(initialInspiration);
 
+  // ── Upscale-only enhancement (no content change) ──
+  const [enhancing, setEnhancing] = useState(false);
+  /** Original photo URL kept so "Undo" can restore it after an enhance */
+  const [enhancedFrom, setEnhancedFrom] = useState<string | null>(null);
+
   const [duration, setDuration] = useState(initialState?.duration ?? 12);
   const [resolution, setResolution] = useState<'720p' | '480p'>(
     initialState?.resolution ?? '720p'
@@ -187,11 +192,45 @@ export default function DroneTracingShotStudio({
       preResolvedRef.current = data.url;
       setRawUrl(data.url);
       setResolvedUrl(data.url);
+      setEnhancedFrom(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to upload image');
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleEnhancePhoto = async () => {
+    if (!resolvedUrl) return;
+    setError(null);
+    setEnhancing(true);
+    try {
+      const response = await fetch('/api/upscale-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: resolvedUrl }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.error || typeof data.imageUrl !== 'string') {
+        throw new Error(data.error || 'Failed to enhance the photo');
+      }
+      setEnhancedFrom(resolvedUrl);
+      preResolvedRef.current = data.imageUrl;
+      setRawUrl(data.imageUrl);
+      setResolvedUrl(data.imageUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to enhance the photo');
+    } finally {
+      setEnhancing(false);
+    }
+  };
+
+  const handleUndoEnhance = () => {
+    if (!enhancedFrom) return;
+    preResolvedRef.current = enhancedFrom;
+    setRawUrl(enhancedFrom);
+    setResolvedUrl(enhancedFrom);
+    setEnhancedFrom(null);
   };
 
   // ── Autosave to content_creation_requests (mirrors StudioWizard) ──
@@ -439,6 +478,7 @@ export default function DroneTracingShotStudio({
     setStep('image'); setError(null);
     setRawUrl(''); setResolvedUrl(null); setThumbError(null);
     preResolvedRef.current = null;
+    setEnhancedFrom(null); setEnhancing(false);
     setAerialImageUrl(null); setHasPath(false); setAnnotatedImage(null);
     setPrompt(''); setDuration(12); setPathAnalysis(null); setVideoUrl(null);
     setVideoModel(DEFAULT_VIDEO_MODEL_ID); setReferenceSource('path');
@@ -536,7 +576,7 @@ export default function DroneTracingShotStudio({
                 id="inspo-url"
                 type="url"
                 value={rawUrl}
-                onChange={(e) => setRawUrl(e.target.value)}
+                onChange={(e) => { setRawUrl(e.target.value); setEnhancedFrom(null); }}
                 className="input-field text-sm flex-1"
                 placeholder="Paste a pin.it / pinterest.com URL, or upload a photo…"
               />
@@ -584,6 +624,31 @@ export default function DroneTracingShotStudio({
               </div>
             )}
 
+            {/* Upscale-only enhance (no content change) */}
+            {resolvedUrl && !resolving && !thumbError && (
+              enhancedFrom ? (
+                <div className="flex items-center justify-between px-1">
+                  <p className="text-xs text-[#D1FE17]">✓ Enhanced to HD — same photo, sharper</p>
+                  <button
+                    type="button"
+                    onClick={handleUndoEnhance}
+                    className="text-xs text-gray-500 hover:text-white"
+                  >
+                    Undo
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleEnhancePhoto}
+                  disabled={enhancing}
+                  className="w-full px-4 py-2.5 text-xs text-gray-300 border border-gray-800 rounded-xl disabled:opacity-40 hover:border-gray-600 hover:text-white transition-all touch-manipulation"
+                >
+                  {enhancing ? 'Enhancing…' : 'Enhance photo (HD upscale — no content change)'}
+                </button>
+              )
+            )}
+
             {/* Settings row */}
             <div className="grid grid-cols-2 gap-3">
               <DurationSelect value={duration} onChange={setDuration} />
@@ -611,7 +676,7 @@ export default function DroneTracingShotStudio({
             <button
               type="button"
               onClick={handleUsePhoto}
-              disabled={resolving || uploading || !resolvedUrl}
+              disabled={resolving || uploading || enhancing || !resolvedUrl}
               className="w-full btn-primary disabled:opacity-40 text-sm py-3"
             >
               Draw flight path →
