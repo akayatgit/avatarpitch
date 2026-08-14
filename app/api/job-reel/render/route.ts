@@ -5,8 +5,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import ffmpegPath from 'ffmpeg-static';
+import { copyFile } from 'fs/promises';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { buildUploadPath, uploadPublicFile } from '@/lib/storage';
+import { buildUploadPath, localUploadFilePath, uploadPublicFile } from '@/lib/storage';
 import {
   JOB_REEL_FORMAT,
   JOB_REEL_FPS,
@@ -42,12 +43,25 @@ async function runFfmpeg(args: string[]) {
 }
 
 async function download(url: string, filePath: string) {
+  // Local uploads are read straight from disk — no HTTP round-trip
+  const localPath = localUploadFilePath(url);
+  if (localPath) {
+    await copyFile(localPath, filePath);
+    return;
+  }
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to download an asset (${response.status})`);
   }
   const buffer = Buffer.from(await response.arrayBuffer());
   await writeFile(filePath, buffer);
+}
+
+/** Accept absolute http(s) URLs and our own relative /uploads/ URLs. */
+function isUsableAssetUrl(url: unknown): url is string {
+  return (
+    typeof url === 'string' && (/^https?:\/\//.test(url) || url.startsWith('/uploads/'))
+  );
 }
 
 /**
@@ -94,18 +108,13 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     projectId = typeof body?.projectId === 'string' ? body.projectId : null;
-    const backgroundUrl =
-      typeof body?.backgroundUrl === 'string' && /^https?:\/\//.test(body.backgroundUrl)
-        ? body.backgroundUrl
-        : null;
+    const backgroundUrl = isUsableAssetUrl(body?.backgroundUrl) ? body.backgroundUrl : null;
     const backgroundType = body?.backgroundType === 'image' ? 'image' : 'video';
     const sections: RenderSection[] = Array.isArray(body?.sections)
       ? body.sections
           .filter(
             (section: any): section is RenderSection =>
-              typeof section?.overlayUrl === 'string' &&
-              /^https?:\/\//.test(section.overlayUrl) &&
-              typeof section?.durationSec === 'number'
+              isUsableAssetUrl(section?.overlayUrl) && typeof section?.durationSec === 'number'
           )
           .map((section: RenderSection) => ({
             overlayUrl: section.overlayUrl,
@@ -138,7 +147,9 @@ export async function POST(request: NextRequest) {
     const totalDuration = sections.reduce((sum, section) => sum + section.durationSec, 0);
     const size = `${JOB_REEL_WIDTH}x${JOB_REEL_HEIGHT}`;
     const coverFilter = `scale=${JOB_REEL_WIDTH}:${JOB_REEL_HEIGHT}:force_original_aspect_ratio=increase,crop=${JOB_REEL_WIDTH}:${JOB_REEL_HEIGHT}`;
-    const encodeArgs = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-an'];
+    // -threads 4: tower contract §2.4 — renders must not win the CPU fight
+    // against the scraper/Ollama on the shared ThinkPad
+    const encodeArgs = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-an', '-threads', '4'];
 
     workDir = await mkdtemp(join(tmpdir(), 'job-reel-'));
 

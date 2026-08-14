@@ -216,6 +216,10 @@ export default function RenderStep({
       {state.finalVideoUrl && state.renderStatus === 'completed' ? (
         <div className="bg-gray-900 border border-[#D1FE17]/30 rounded-xl p-4 space-y-3">
           <p className="text-sm font-semibold text-white">Your job reel is ready</p>
+          <p className="text-xs text-amber-400/90 bg-amber-950/30 border border-amber-900/50 rounded-lg px-3 py-2">
+            Download within 48 hours — files are auto-cleaned after that. You can always
+            re-render the same reel later.
+          </p>
           <video
             src={state.finalVideoUrl}
             controls

@@ -5,8 +5,9 @@ import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import ffmpegPath from 'ffmpeg-static';
+import { copyFile } from 'fs/promises';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { buildUploadPath, uploadPublicFile } from '@/lib/storage';
+import { buildUploadPath, localUploadFilePath, uploadPublicFile } from '@/lib/storage';
 import { ASSEMBLY_ASPECT_RATIOS, ASSEMBLY_FORMAT, MAX_BUILDINGS } from '@/lib/assembly';
 
 export const runtime = 'nodejs';
@@ -35,12 +36,25 @@ async function runFfmpeg(args: string[]) {
 }
 
 async function download(url: string, filePath: string) {
+  // Local uploads are read straight from disk — no HTTP round-trip
+  const localPath = localUploadFilePath(url);
+  if (localPath) {
+    await copyFile(localPath, filePath);
+    return;
+  }
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to download clip (${response.status})`);
   }
   const buffer = Buffer.from(await response.arrayBuffer());
   await writeFile(filePath, buffer);
+}
+
+/** Accept absolute http(s) URLs and our own relative /uploads/ URLs. */
+function isUsableAssetUrl(url: unknown): url is string {
+  return (
+    typeof url === 'string' && (/^https?:\/\//.test(url) || url.startsWith('/uploads/'))
+  );
 }
 
 /** Persist the stitched showcase URL onto the assembly project. */
@@ -76,12 +90,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const videoUrls: string[] = Array.isArray(body?.videoUrls)
-      ? body.videoUrls.filter((url: unknown): url is string => typeof url === 'string' && /^https?:\/\//.test(url))
+      ? body.videoUrls.filter(isUsableAssetUrl)
       : [];
-    const titleCardUrl =
-      typeof body?.titleCardUrl === 'string' && /^https?:\/\//.test(body.titleCardUrl)
-        ? body.titleCardUrl
-        : null;
+    const titleCardUrl = isUsableAssetUrl(body?.titleCardUrl) ? body.titleCardUrl : null;
     const aspectRatio = (ASSEMBLY_ASPECT_RATIOS as readonly string[]).includes(body?.aspectRatio)
       ? (body.aspectRatio as string)
       : '16:9';
@@ -97,7 +108,9 @@ export async function POST(request: NextRequest) {
     const { width, height } = DIMENSIONS[aspectRatio];
     // Normalize every segment to identical codec/size/fps so concat can stream-copy
     const normalizeFilter = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,fps=24,format=yuv420p`;
-    const encodeArgs = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-an'];
+    // -threads 4: tower contract §2.4 — renders must not win the CPU fight
+    // against the scraper/Ollama on the shared ThinkPad
+    const encodeArgs = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-an', '-threads', '4'];
 
     workDir = await mkdtemp(join(tmpdir(), 'assembly-stitch-'));
     const segments: string[] = [];

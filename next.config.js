@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['@supabase/supabase-js', 'ffmpeg-static'],
+    serverComponentsExternalPackages: ['better-sqlite3', 'ffmpeg-static'],
     serverActions: {
       bodySizeLimit: '10mb',
     },

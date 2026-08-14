@@ -28,6 +28,10 @@ yarn-error.log*
 .env*.local
 .env
 
+# local data & uploads (never in git — source-safety law)
+/.data/
+/uploads/
+
 # vercel
 .vercel
 
