@@ -22,6 +22,7 @@ import {
 } from '@/lib/jobReel';
 import { renderJobCardOverlayDataUrl } from '@/lib/jobReelCards';
 import SectionPreview from './SectionPreview';
+import TowerFillPanel, { type TowerCardData } from './TowerFillPanel';
 
 interface JobCardsStepProps {
   state: JobReelState;
@@ -138,8 +139,31 @@ export default function JobCardsStep({
 
   const readyCount = usableCards(state).length;
 
+  /** Verbatim tower rows in; empty starter cards are replaced, filled ones are kept. */
+  const fillFromTower = (towerCards: TowerCardData[]) => {
+    const existingUsable = state.cards.filter(
+      (card) =>
+        card.company.trim() ||
+        card.role.trim() ||
+        card.experience.trim() ||
+        card.education.trim() ||
+        card.logoUrl
+    );
+    const mapped = towerCards.map((towerCard) => ({
+      ...createJobReelCard(),
+      company: towerCard.company ?? '',
+      logoUrl: towerCard.logoUrl ?? null,
+      role: towerCard.role ?? '',
+      experience: towerCard.experience ?? '',
+      education: towerCard.education ?? '',
+    }));
+    updateState({ cards: [...existingUsable, ...mapped].slice(0, MAX_JOB_CARDS) });
+  };
+
   return (
     <div className="space-y-4">
+      <TowerFillPanel onFill={fillFromTower} maxCards={MAX_JOB_CARDS} />
+
       <p className="text-xs text-gray-500">
         One card per company — same colors, font and layout on every card. Fill only what you have;
         empty fields are simply left off the card.
