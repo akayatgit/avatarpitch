@@ -24,6 +24,11 @@ export function towerAssetUrl(key: string): string {
   return `${towerBaseUrl()}/assets/${key}`;
 }
 
+/** True when a URL points at the tower's public asset endpoint (and nowhere else). */
+export function isTowerAssetHttpUrl(url: unknown): url is string {
+  return typeof url === 'string' && url.startsWith(`${towerBaseUrl()}/assets/`);
+}
+
 const SAFE_KEY = /^[a-z0-9][a-z0-9/_.-]{2,180}$/;
 
 export function isValidAssetKey(key: unknown): key is string {
