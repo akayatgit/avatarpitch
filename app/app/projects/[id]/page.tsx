@@ -1,5 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 import NetworkError from '@/components/NetworkError';
@@ -67,6 +67,11 @@ export default async function ProjectDetailPage({
         : request.generated_output || {};
     } catch (e) {
       console.error('Error parsing generated_output:', e);
+    }
+
+    // Job reel projects are edited (and downloaded) in their own wizard
+    if (generatedOutput?.format === 'jobreel_v1') {
+      redirect(`/app/job-reel?projectId=${request.id}`);
     }
 
     const productName = inputs['PRODUCT NAME'] || 

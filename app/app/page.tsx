@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import Link from 'next/link';
-import { Blocks, Clapperboard, Drone } from 'lucide-react';
+import { Blocks, Briefcase, Clapperboard, Drone } from 'lucide-react';
 import NetworkError from '@/components/NetworkError';
 import { isSupabaseNetworkError } from '@/lib/networkError';
 import { ensureContentTypesSeeded } from '@/lib/seedData';
@@ -23,6 +23,12 @@ const TOOLS = [
     href: '/app/assembly',
     description: 'Empty plot → construction reveal',
     icon: Blocks,
+  },
+  {
+    name: 'Job Reel',
+    href: '/app/job-reel',
+    description: 'Pinterest background + job cards → hiring reel',
+    icon: Briefcase,
   },
 ] as const;
 
