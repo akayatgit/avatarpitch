@@ -45,9 +45,24 @@ async function runFfmpeg(args: string[]) {
   try {
     await execFileAsync(ffmpegPath, args, { maxBuffer: 32 * 1024 * 1024 });
   } catch (error: any) {
+    if (error?.code === 'ENOENT') {
+      throw new Error(
+        'The ffmpeg binary is missing from this deployment bundle (tracing issue) — redeploy needed'
+      );
+    }
     const stderr: string = error?.stderr ?? '';
     console.error('ffmpeg failed:', stderr.slice(-2000));
-    throw new Error('Video rendering failed while processing the clips');
+    // Surface the real ffmpeg reason — production has no other way to see it
+    const detail = stderr
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .slice(-2)
+      .join(' ')
+      .slice(-240);
+    throw new Error(
+      detail ? `Video rendering failed: ${detail}` : 'Video rendering failed while processing the clips'
+    );
   }
 }
 
