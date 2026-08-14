@@ -26,8 +26,12 @@ export type DroneShotIdeation = z.infer<typeof DroneShotIdeationSchema>;
 /** Full persisted state of a drone shot project (stored in content_creation_requests.generated_output). */
 export const DroneShotStateSchema = z.object({
   format: z.literal(DRONE_SHOT_FORMAT),
-  step: z.enum(['ideation', 'world', 'draw', 'prompt', 'video']),
+  // 'image' is the current first step; 'ideation'/'world' are legacy steps kept for old saved projects.
+  step: z.enum(['image', 'ideation', 'world', 'draw', 'prompt', 'video']),
+  /** Legacy surreal-concept ideation — no longer produced, kept so old projects still parse. */
   ideation: DroneShotIdeationSchema.nullable(),
+  /** The resolved Pinterest / uploaded photo used directly as the world still. */
+  inspirationImageUrl: z.string().nullable().default(null),
   duration: z.number(),
   resolution: z.enum(['720p', '480p']),
   imageModel: z.enum(['nano-banana-2', 'seedream-3']),
