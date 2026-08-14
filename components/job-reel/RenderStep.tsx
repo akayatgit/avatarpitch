@@ -226,6 +226,15 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
     .replace(/[^a-zA-Z0-9]+/g, '-')
     .toLowerCase()}-reel.mp4`;
 
+  // Tower URLs are cross-origin, so the anchor `download` attribute is ignored
+  // and iPhones just play the video in a new tab. Route those through our
+  // same-origin proxy, which serves Content-Disposition: attachment — the real
+  // download prompt. Inline data-URL fallbacks download fine directly.
+  const downloadHref =
+    state.finalVideoUrl && !state.finalVideoUrl.startsWith('data:')
+      ? `/api/job-reel/download?src=${encodeURIComponent(state.finalVideoUrl)}&name=${encodeURIComponent(downloadName)}`
+      : state.finalVideoUrl;
+
   return (
     <div className="space-y-4">
       {/* Summary + durations */}
@@ -262,10 +271,8 @@ export default function RenderStep({ state, updateState, goToStep }: RenderStepP
           />
           <div className="flex gap-2">
             <a
-              href={state.finalVideoUrl}
+              href={downloadHref ?? state.finalVideoUrl}
               download={downloadName}
-              target="_blank"
-              rel="noopener noreferrer"
               className="btn-primary flex-1 flex items-center justify-center gap-2 text-sm py-2.5 min-h-[48px] touch-manipulation"
             >
               <Download className="w-4 h-4" />
