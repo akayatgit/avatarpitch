@@ -5,30 +5,17 @@ import { Clapperboard, Download, Loader2, Minus, Plus, RefreshCw, Smartphone } f
 import {
   MAX_SECTION_SECONDS,
   MIN_SECTION_SECONDS,
+  isRenderStale,
   totalDurationSec,
   usableCards,
   type JobReelState,
 } from '@/lib/jobReel';
-import { renderHookOverlayBlob, renderJobCardOverlayBlob } from '@/lib/jobReelCards';
+import { renderHookOverlayDataUrl, renderJobCardOverlayDataUrl } from '@/lib/jobReelCards';
 
 interface RenderStepProps {
   state: JobReelState;
-  projectId: string | null;
   updateState: (patch: Partial<JobReelState>) => void;
-  /** Persist immediately (optionally an explicit snapshot) and resolve with the project id. */
-  persistNow: (overrideState?: JobReelState) => Promise<string | null>;
   goToStep: (step: number) => void;
-}
-
-async function uploadOverlay(blob: Blob, name: string): Promise<string> {
-  const formData = new FormData();
-  formData.append('images', new File([blob], name, { type: 'image/png' }));
-  const response = await fetch('/api/upload-image', { method: 'POST', body: formData });
-  const data = await response.json();
-  if (!response.ok || !data?.url) {
-    throw new Error(data?.error || 'Overlay upload failed');
-  }
-  return data.url;
 }
 
 function DurationStepper({
@@ -66,13 +53,7 @@ function DurationStepper({
   );
 }
 
-export default function RenderStep({
-  state,
-  projectId,
-  updateState,
-  persistNow,
-  goToStep,
-}: RenderStepProps) {
+export default function RenderStep({ state, updateState, goToStep }: RenderStepProps) {
   const [preparing, setPreparing] = useState(false);
   const [prepareProgress, setPrepareProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -84,25 +65,32 @@ export default function RenderStep({
   const totalSeconds = totalDurationSec(state);
   const isRendering = state.renderStatus === 'rendering';
 
-  // Poll the server while a render is in flight. Works across page reloads and
-  // returning from other apps — the server keeps rendering either way.
+  // Poll the render-status ticket while a render is in flight. The ticket lives
+  // in localStorage, so this works across reloads and returning from other apps
+  // — the server keeps rendering and parks the result in Blob either way.
   useEffect(() => {
-    if (!isRendering || !projectId) return;
+    if (!isRendering || !state.renderTicket) return;
 
     let cancelled = false;
     const poll = async () => {
       try {
-        const response = await fetch(`/api/job-reel/status?projectId=${projectId}`, {
+        const response = await fetch(`/api/job-reel/status?ticket=${state.renderTicket}`, {
           cache: 'no-store',
         });
         if (!response.ok) return;
         const data = await response.json();
         if (cancelled || !data?.renderStatus) return;
-        if (data.renderStatus !== 'rendering') {
+        if (data.renderStatus === 'completed' || data.renderStatus === 'failed') {
           updateState({
             renderStatus: data.renderStatus,
             renderError: data.renderError ?? null,
             finalVideoUrl: data.finalVideoUrl ?? null,
+          });
+        } else if (data.renderStatus === 'unknown' && isRenderStale(stateRef.current)) {
+          // Ticket never landed (render died before writing status) — unstick the UI
+          updateState({
+            renderStatus: 'failed',
+            renderError: 'The render did not report back. Tap render to try again.',
           });
         }
       } catch {
@@ -116,7 +104,7 @@ export default function RenderStep({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [isRendering, projectId, updateState]);
+  }, [isRendering, state.renderTicket, updateState]);
 
   const startRender = async () => {
     if (!state.backgroundUrl || cards.length === 0) return;
@@ -127,43 +115,31 @@ export default function RenderStep({
       await (document as any).fonts?.ready;
 
       setPrepareProgress(`Preparing section 1/${cards.length + 1}…`);
-      const hookBlob = await renderHookOverlayBlob(state.hook);
-      const hookUrl = await uploadOverlay(hookBlob, 'hook.png');
-
-      const sections: Array<{ overlayUrl: string; durationSec: number }> = [
-        { overlayUrl: hookUrl, durationSec: state.hookDurationSec },
+      const sections: Array<{ overlayDataUrl: string; durationSec: number }> = [
+        { overlayDataUrl: renderHookOverlayDataUrl(state.hook), durationSec: state.hookDurationSec },
       ];
       for (let index = 0; index < cards.length; index++) {
         setPrepareProgress(`Preparing section ${index + 2}/${cards.length + 1}…`);
-        const blob = await renderJobCardOverlayBlob(cards[index]);
-        const url = await uploadOverlay(blob, `card-${index + 1}.png`);
-        sections.push({ overlayUrl: url, durationSec: state.cardDurationSec });
+        const overlayDataUrl = await renderJobCardOverlayDataUrl(cards[index]);
+        sections.push({ overlayDataUrl, durationSec: state.cardDurationSec });
       }
 
-      // Persist the "rendering" state before kicking off, so leaving the app is safe
-      const renderingState: JobReelState = {
-        ...stateRef.current,
-        renderStatus: 'rendering',
-        renderError: null,
-        renderStartedAt: new Date().toISOString(),
-        finalVideoUrl: null,
-        step: 4,
-      };
+      const ticket = `reel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
       updateState({
         renderStatus: 'rendering',
         renderError: null,
-        renderStartedAt: renderingState.renderStartedAt,
+        renderStartedAt: new Date().toISOString(),
+        renderTicket: ticket,
         finalVideoUrl: null,
       });
-      const savedProjectId = await persistNow(renderingState);
 
       // Fire the render. If the phone leaves the browser and this request dies,
-      // the server keeps going and the status poll picks up the result.
+      // the server keeps going and the ticket poll picks up the result.
       fetch('/api/job-reel/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId: savedProjectId,
+          ticket,
           backgroundUrl: state.backgroundUrl,
           backgroundType: state.backgroundType ?? 'video',
           sections,
@@ -244,6 +220,10 @@ export default function RenderStep({
               Re-render
             </button>
           </div>
+          <p className="text-[11px] text-gray-500">
+            Download within 48 hours — rendered files are auto-cleaned after that. You can always
+            re-render this draft.
+          </p>
         </div>
       ) : isRendering ? (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
@@ -253,7 +233,7 @@ export default function RenderStep({
           </div>
           <p className="flex items-start gap-2 text-xs text-gray-500">
             <Smartphone className="w-4 h-4 flex-shrink-0 mt-0.5" />
-            You can leave this app — rendering continues on the server. Come back to this project
+            You can leave this app — rendering continues on the server. Come back to this page
             anytime and the download will be waiting.
           </p>
         </div>

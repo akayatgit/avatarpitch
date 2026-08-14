@@ -5,32 +5,30 @@ import {
   type TowerExperienceBand,
   type TowerJob,
 } from '@/lib/towerClient';
-import { buildUploadPath, uploadPublicFile } from '@/lib/storage';
 import { MAX_JOB_CARDS } from '@/lib/jobReel';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
+const MAX_LOGO_BYTES = 200 * 1024;
+
 /**
- * Mirror a company logo into local uploads at reel-creation time
- * (contract §2.2: remote LinkedIn CDN URLs rot, and remote images would
- * taint the overlay canvas anyway). Returns null when the logo can't be
- * fetched — the card falls back to the company name text box.
+ * Fetch a company logo server-side and hand it to the client as a small data
+ * URL (contract §2.2: remote CDN URLs rot, and remote images would taint the
+ * overlay canvas — data URLs don't). No storage involved. Returns null when
+ * the logo can't be fetched — the card falls back to the company name box.
  */
-async function mirrorLogo(job: TowerJob): Promise<string | null> {
+async function fetchLogoDataUrl(job: TowerJob): Promise<string | null> {
   if (!job.company_logo_url) return null;
   try {
     const response = await fetch(job.company_logo_url);
     if (!response.ok) return null;
+    const contentType = response.headers.get('content-type') || 'image/png';
+    if (!contentType.startsWith('image/')) return null;
     const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.length < 100) return null;
-    const safeCompany = job.company_name.replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase() || 'logo';
-    return await uploadPublicFile({
-      path: buildUploadPath('job-reel/logos', `${safeCompany}.png`),
-      body: buffer,
-      contentType: response.headers.get('content-type') || 'image/png',
-    });
+    if (buffer.length < 100 || buffer.length > MAX_LOGO_BYTES) return null;
+    return `data:${contentType};base64,${buffer.toString('base64')}`;
   } catch {
     return null;
   }
@@ -61,7 +59,7 @@ export async function GET(request: NextRequest) {
       limit,
     });
 
-    const logoUrls = await Promise.all(data.jobs.map((job) => mirrorLogo(job)));
+    const logoUrls = await Promise.all(data.jobs.map((job) => fetchLogoDataUrl(job)));
 
     // Verbatim mapping — job facts straight from the tower response
     const cards = data.jobs.map((job, index) => ({

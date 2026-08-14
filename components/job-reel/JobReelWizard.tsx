@@ -1,9 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { Plus } from 'lucide-react';
 import {
+  JobReelStateSchema,
   createEmptyJobReelState,
   usableCards,
   type JobReelCard,
@@ -15,20 +15,8 @@ import HookStep from './HookStep';
 import JobCardsStep from './JobCardsStep';
 import RenderStep from './RenderStep';
 
-export interface RecentJobReelProject {
-  id: string;
-  title: string;
-  createdAt: string;
-  cardCount: number;
-  renderStatus: string;
-  hasVideo: boolean;
-}
-
-interface JobReelWizardProps {
-  initialProjectId: string | null;
-  initialState: JobReelState | null;
-  recentProjects: RecentJobReelProject[];
-}
+/** The single draft lives in the browser — no accounts, no database. */
+const STORAGE_KEY = 'jobReelDraft_v1';
 
 const STEPS = [
   { number: 1, label: 'Background' },
@@ -37,72 +25,53 @@ const STEPS = [
   { number: 4, label: 'Video' },
 ];
 
-export default function JobReelWizard({
-  initialProjectId,
-  initialState,
-  recentProjects,
-}: JobReelWizardProps) {
-  const [projectId, setProjectId] = useState<string | null>(initialProjectId);
-  const [state, setState] = useState<JobReelState>(initialState ?? createEmptyJobReelState());
-  const [saving, setSaving] = useState(false);
+function loadDraft(): JobReelState | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const result = JobReelStateSchema.safeParse(JSON.parse(raw));
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
 
-  const projectIdRef = useRef(projectId);
-  projectIdRef.current = projectId;
+function saveDraft(state: JobReelState) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    // Quota exceeded (huge logos) — drop logos and retry once so text survives
+    try {
+      const slim: JobReelState = {
+        ...state,
+        cards: state.cards.map((card) => ({ ...card, logoUrl: null })),
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+    } catch {
+      console.error('Could not save the draft locally:', error);
+    }
+  }
+}
+
+export default function JobReelWizard() {
+  const [state, setState] = useState<JobReelState>(createEmptyJobReelState());
+  const [hydrated, setHydrated] = useState(false);
+
   const stateRef = useRef(state);
   stateRef.current = state;
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hydratedRef = useRef(false);
 
-  /** Persist immediately and resolve with the project id (created on first save). */
-  const persistNow = useCallback(async (overrideState?: JobReelState): Promise<string | null> => {
-    const currentState = overrideState ?? stateRef.current;
-    // Nothing worth saving until a background exists
-    if (!currentState.backgroundUrl) {
-      return projectIdRef.current;
-    }
-    setSaving(true);
-    try {
-      const response = await fetch('/api/job-reel/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: projectIdRef.current, state: currentState }),
-      });
-      const data = await response.json();
-      if (response.ok && data?.projectId && !projectIdRef.current) {
-        setProjectId(data.projectId);
-        projectIdRef.current = data.projectId;
-        // Keep the URL shareable / refresh-safe without a navigation
-        if (typeof window !== 'undefined') {
-          window.history.replaceState(null, '', `/app/job-reel?projectId=${data.projectId}`);
-        }
-      }
-      return projectIdRef.current;
-    } catch (error) {
-      console.error('Autosave failed:', error);
-      return projectIdRef.current;
-    } finally {
-      setSaving(false);
-    }
+  // Restore the draft once on mount (client-only — localStorage)
+  useEffect(() => {
+    const draft = loadDraft();
+    if (draft) setState(draft);
+    setHydrated(true);
   }, []);
 
-  // Debounced autosave whenever state changes (skips first render / hydration)
+  // Persist every change locally (cheap sync write, no debounce needed)
   useEffect(() => {
-    if (!hydratedRef.current) {
-      hydratedRef.current = true;
-      return;
-    }
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-    }
-    saveTimerRef.current = setTimeout(() => {
-      void persistNow();
-    }, 1200);
-    return () => {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-      }
-    };
-  }, [state, persistNow]);
+    if (!hydrated) return;
+    saveDraft(state);
+  }, [state, hydrated]);
 
   const updateState = useCallback((patch: Partial<JobReelState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -126,10 +95,24 @@ export default function JobReelWizard({
     }
   }, []);
 
+  const startNew = useCallback(() => {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // best effort
+    }
+    setState(createEmptyJobReelState());
+  }, []);
+
   const cardCount = usableCards(state).length;
   const maxReachableStep = !state.backgroundUrl ? 1 : cardCount === 0 ? 3 : 4;
   const currentStep = Math.min(state.step, maxReachableStep);
-  const isFreshProject = !projectId && !state.backgroundUrl;
+  const hasContent = Boolean(state.backgroundUrl);
+
+  if (!hydrated) {
+    // One paint without the draft would flash step 1 — wait for localStorage
+    return <div className="max-w-lg mx-auto px-4 pb-16" />;
+  }
 
   return (
     <div className="max-w-lg mx-auto px-4 pb-16">
@@ -141,17 +124,17 @@ export default function JobReelWizard({
           </h1>
           <p className="text-xs text-gray-400 mt-0.5">
             Pinterest background → hook → job cards → one video
-            {saving && <span className="ml-2 text-gray-500">Saving…</span>}
           </p>
         </div>
-        {projectId && (
-          <Link
-            href="/app/job-reel"
+        {hasContent && (
+          <button
+            type="button"
+            onClick={startNew}
             className="flex items-center gap-1 text-xs text-gray-300 border border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-900 flex-shrink-0 min-h-[40px] touch-manipulation"
           >
             <Plus className="w-3.5 h-3.5" />
             New
-          </Link>
+          </button>
         )}
       </div>
 
@@ -216,46 +199,7 @@ export default function JobReelWizard({
         />
       )}
       {currentStep === 4 && (
-        <RenderStep
-          state={state}
-          projectId={projectId}
-          updateState={updateState}
-          persistNow={persistNow}
-          goToStep={goToStep}
-        />
-      )}
-
-      {/* Recent projects (only on a fresh start) */}
-      {isFreshProject && recentProjects.length > 0 && (
-        <div className="mt-10">
-          <h2 className="text-sm font-semibold text-gray-300 mb-3">Continue where you left off</h2>
-          <div className="space-y-2">
-            {recentProjects.map((project) => (
-              <Link
-                key={project.id}
-                href={`/app/job-reel?projectId=${project.id}`}
-                className="flex items-center justify-between bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 hover:border-gray-600 transition-colors touch-manipulation"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm text-white font-medium truncate">
-                    {project.title || 'Untitled job reel'}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {project.cardCount} job card{project.cardCount === 1 ? '' : 's'}
-                    {project.hasVideo
-                      ? ' · video ready'
-                      : project.renderStatus === 'rendering'
-                        ? ' · rendering…'
-                        : ''}
-                  </p>
-                </div>
-                <span className="text-xs text-gray-500 flex-shrink-0 ml-3">
-                  {new Date(project.createdAt).toLocaleDateString()}
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
+        <RenderStep state={state} updateState={updateState} goToStep={goToStep} />
       )}
     </div>
   );
