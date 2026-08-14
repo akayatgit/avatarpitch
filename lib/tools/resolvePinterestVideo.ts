@@ -34,7 +34,7 @@ function unescapeJsonUrl(url: string): string {
 }
 
 /** Preference order for Pinterest MP4 renditions found in the page JSON. */
-const RENDITION_PRIORITY = ['720p', 'expanded', '480p', 'v_exp', 'mc'];
+const RENDITION_PRIORITY = ['720p', '720w', 'expmp4', 'expanded', '480p', 'v_exp', 'mc'];
 
 function rankVideoUrl(url: string): number {
   const lower = url.toLowerCase();
@@ -49,8 +49,13 @@ function rankVideoUrl(url: string): number {
 export function extractPinterestVideoUrl(html: string): string | null {
   const candidates = new Set<string>();
 
-  // Any MP4 hosted on Pinterest's video CDN, in raw or JSON-escaped form
-  const mp4Pattern = /https:(?:\\u002F\\u002F|\\\/\\\/|\/\/)v\.pinimg\.com[^"'\s\\]*?\.mp4[^"'\s\\]*/gi;
+  // Any MP4 hosted on Pinterest's video CDN (v.pinimg.com, v1.pinimg.com, …),
+  // in raw or JSON-escaped form (URL bodies may contain \u002F, \u0026 or \/ escapes)
+  const urlChar = String.raw`(?:[^"'\s\\]|\\u002F|\\u0026|\\\/)`;
+  const mp4Pattern = new RegExp(
+    String.raw`https:(?:\\u002F\\u002F|\\\/\\\/|\/\/)v\d*\.pinimg\.com${urlChar}*?\.mp4${urlChar}*`,
+    'gi'
+  );
   for (const match of html.match(mp4Pattern) ?? []) {
     candidates.add(unescapeJsonUrl(match));
   }
@@ -82,7 +87,9 @@ function isPinterestUrl(raw: string): boolean {
 function isDirectVideoUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
-    return /\.(mp4|mov|webm)(\?|$)/i.test(u.pathname) || u.hostname.includes('v.pinimg.com');
+    return (
+      /\.(mp4|mov|webm)(\?|$)/i.test(u.pathname) || /^v\d*\.pinimg\.com$/i.test(u.hostname)
+    );
   } catch {
     return false;
   }
