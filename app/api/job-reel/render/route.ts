@@ -5,10 +5,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import ffmpegPath from 'ffmpeg-static';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { buildUploadPath, uploadPublicFile } from '@/lib/storage';
+import { isValidTicket, putTowerAsset, writeRenderStatus } from '@/lib/towerStorage';
 import {
-  JOB_REEL_FORMAT,
   JOB_REEL_FPS,
   JOB_REEL_HEIGHT,
   JOB_REEL_WIDTH,
@@ -23,8 +21,20 @@ export const dynamic = 'force-dynamic';
 
 const execFileAsync = promisify(execFile);
 
+// Vercel serverless responses cap at ~4.5 MB and base64 inflates 4/3 —
+// inline videos are only the fallback for when the tower asset API isn't
+// enabled yet; real-length reels need the tower storage live
+const MAX_INLINE_VIDEO_BYTES = 3_000_000;
+
+const DOWNLOAD_HEADERS = {
+  Accept: '*/*',
+  Referer: 'https://www.pinterest.com/',
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+} as const;
+
 interface RenderSection {
-  overlayUrl: string;
+  overlayDataUrl: string;
   durationSec: number;
 }
 
@@ -41,79 +51,47 @@ async function runFfmpeg(args: string[]) {
   }
 }
 
-async function download(url: string, filePath: string) {
-  const response = await fetch(url);
+async function downloadBackground(url: string, filePath: string) {
+  const response = await fetch(url, { headers: DOWNLOAD_HEADERS });
   if (!response.ok) {
-    throw new Error(`Failed to download an asset (${response.status})`);
+    throw new Error(`Failed to download the background (${response.status})`);
   }
   const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.length < 1024) {
+    throw new Error('The background link returned an empty file — re-paste the pin link');
+  }
   await writeFile(filePath, buffer);
 }
 
-/**
- * Patch the persisted job reel state. The render must report its outcome to the
- * DB because the phone that kicked it off may be locked / in another app by now.
- */
-async function patchProjectState(projectId: string, patch: Record<string, unknown>) {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('content_creation_requests')
-      .select('generated_output')
-      .eq('id', projectId)
-      .single();
+const PNG_DATA_URL = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/;
 
-    if (error || !data) return;
-
-    const state =
-      typeof data.generated_output === 'string'
-        ? JSON.parse(data.generated_output)
-        : data.generated_output;
-
-    if (!state || state.format !== JOB_REEL_FORMAT) return;
-
-    const nextState = { ...state, ...patch };
-    const status =
-      nextState.renderStatus === 'completed'
-        ? 'completed'
-        : nextState.renderStatus === 'rendering'
-          ? 'processing'
-          : 'pending';
-
-    await supabaseAdmin
-      .from('content_creation_requests')
-      .update({ generated_output: nextState, status })
-      .eq('id', projectId);
-  } catch (error) {
-    console.error('Could not patch job reel project state:', error);
-  }
+function isRenderSection(section: any): section is RenderSection {
+  return (
+    typeof section?.overlayDataUrl === 'string' &&
+    PNG_DATA_URL.test(section.overlayDataUrl) &&
+    typeof section?.durationSec === 'number'
+  );
 }
 
 export async function POST(request: NextRequest) {
   let workDir: string | null = null;
-  let projectId: string | null = null;
+  let ticket: string | null = null;
   try {
     const body = await request.json();
-    projectId = typeof body?.projectId === 'string' ? body.projectId : null;
+    ticket = isValidTicket(body?.ticket) ? body.ticket : null;
     const backgroundUrl =
       typeof body?.backgroundUrl === 'string' && /^https?:\/\//.test(body.backgroundUrl)
         ? body.backgroundUrl
         : null;
     const backgroundType = body?.backgroundType === 'image' ? 'image' : 'video';
     const sections: RenderSection[] = Array.isArray(body?.sections)
-      ? body.sections
-          .filter(
-            (section: any): section is RenderSection =>
-              typeof section?.overlayUrl === 'string' &&
-              /^https?:\/\//.test(section.overlayUrl) &&
-              typeof section?.durationSec === 'number'
-          )
-          .map((section: RenderSection) => ({
-            overlayUrl: section.overlayUrl,
-            durationSec: Math.min(
-              MAX_SECTION_SECONDS,
-              Math.max(MIN_SECTION_SECONDS, section.durationSec)
-            ),
-          }))
+      ? body.sections.filter(isRenderSection).map((section: RenderSection) => ({
+          overlayDataUrl: section.overlayDataUrl,
+          durationSec: Math.min(
+            MAX_SECTION_SECONDS,
+            Math.max(MIN_SECTION_SECONDS, section.durationSec)
+          ),
+        }))
       : [];
 
     if (!backgroundUrl) {
@@ -126,13 +104,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (projectId) {
-      await patchProjectState(projectId, {
-        renderStatus: 'rendering',
-        renderError: null,
-        renderStartedAt: new Date().toISOString(),
-        finalVideoUrl: null,
-      });
+    if (ticket) {
+      await writeRenderStatus(ticket, { status: 'rendering' });
     }
 
     const totalDuration = sections.reduce((sum, section) => sum + section.durationSec, 0);
@@ -142,13 +115,14 @@ export async function POST(request: NextRequest) {
 
     workDir = await mkdtemp(join(tmpdir(), 'job-reel-'));
 
-    // 1. Download the background + every section overlay PNG
+    // 1. Background from the CDN + overlay PNGs straight out of the request body
     const backgroundPath = join(workDir, backgroundType === 'image' ? 'bg-src.jpg' : 'bg-src.mp4');
-    await download(backgroundUrl, backgroundPath);
+    await downloadBackground(backgroundUrl, backgroundPath);
     const overlayPaths: string[] = [];
     for (let index = 0; index < sections.length; index++) {
       const overlayPath = join(workDir, `overlay-${index}.png`);
-      await download(sections[index].overlayUrl, overlayPath);
+      const base64 = sections[index].overlayDataUrl.match(PNG_DATA_URL)![1];
+      await writeFile(overlayPath, Buffer.from(base64, 'base64'));
       overlayPaths.push(overlayPath);
     }
 
@@ -222,29 +196,45 @@ export async function POST(request: NextRequest) {
     ]);
 
     const outputBuffer = await readFile(outputPath);
-    const finalVideoUrl = await uploadPublicFile({
-      path: buildUploadPath('job-reel/videos', `job-reel-${Date.now()}.mp4`),
-      body: outputBuffer,
-      contentType: 'video/mp4',
-    });
 
-    if (projectId) {
-      await patchProjectState(projectId, {
-        renderStatus: 'completed',
-        renderError: null,
-        finalVideoUrl,
-      });
+    // 5. Persist on the ThinkPad through the tower asset API (download-later +
+    //    leave-the-app support). While the tower endpoint isn't enabled yet,
+    //    videos are returned inline as a data URL — compressed down if the
+    //    full-quality file doesn't fit the serverless response cap.
+    const videoKey = `job-reel/videos/${ticket ?? `reel-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}.mp4`;
+    let finalVideoUrl = await putTowerAsset(videoKey, outputBuffer, 'video/mp4');
+    if (!finalVideoUrl) {
+      let inlineBuffer = outputBuffer;
+      if (inlineBuffer.length > MAX_INLINE_VIDEO_BYTES) {
+        const compactPath = join(workDir, 'job-reel-compact.mp4');
+        await runFfmpeg([
+          '-y',
+          '-i', outputPath,
+          '-vf', 'scale=540:960',
+          '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '30', '-an',
+          '-movflags', '+faststart',
+          compactPath,
+        ]);
+        inlineBuffer = await readFile(compactPath);
+      }
+      if (inlineBuffer.length > MAX_INLINE_VIDEO_BYTES) {
+        throw new Error(
+          'The video is too large to return while Watch Tower storage is offline. Make a shorter reel or try again later.'
+        );
+      }
+      finalVideoUrl = `data:video/mp4;base64,${inlineBuffer.toString('base64')}`;
+    }
+
+    if (ticket) {
+      await writeRenderStatus(ticket, { status: 'completed', finalVideoUrl });
     }
 
     return NextResponse.json({ success: true, finalVideoUrl });
   } catch (error) {
     console.error('Job reel render error:', error);
     const message = error instanceof Error ? error.message : 'Failed to render the job reel';
-    if (projectId) {
-      await patchProjectState(projectId, {
-        renderStatus: 'failed',
-        renderError: message,
-      });
+    if (ticket) {
+      await writeRenderStatus(ticket, { status: 'failed', error: message });
     }
     return NextResponse.json({ error: message }, { status: 500 });
   } finally {

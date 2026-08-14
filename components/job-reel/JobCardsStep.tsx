@@ -115,18 +115,36 @@ export default function JobCardsStep({
     updateState({ cards: state.cards.filter((card) => card.id !== cardId) });
   };
 
+  /** Logos stay in the browser as small data URLs — no server storage anywhere. */
   const uploadLogo = async (cardId: string, file: File) => {
     setUploadingIds((prev) => ({ ...prev, [cardId]: true }));
     setErrors((prev) => ({ ...prev, [cardId]: '' }));
     try {
-      const formData = new FormData();
-      formData.append('images', file);
-      const response = await fetch('/api/upload-image', { method: 'POST', body: formData });
-      const data = await response.json();
-      if (!response.ok || !data?.url) {
-        throw new Error(data?.error || 'Logo upload failed');
-      }
-      updateCard(cardId, { logoUrl: data.url });
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+          URL.revokeObjectURL(objectUrl);
+          // Downscale to 256px max — plenty for the card, tiny in localStorage
+          const scale = Math.min(1, 256 / Math.max(image.width, image.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          const context = canvas.getContext('2d');
+          if (!context) {
+            reject(new Error('Could not read the image'));
+            return;
+          }
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('That file is not a readable image'));
+        };
+        image.src = objectUrl;
+      });
+      updateCard(cardId, { logoUrl: dataUrl });
     } catch (error) {
       setErrors((prev) => ({
         ...prev,

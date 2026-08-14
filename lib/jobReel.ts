@@ -36,12 +36,12 @@ export type JobReelCard = z.infer<typeof JobReelCardSchema>;
 export const JOB_REEL_RENDER_STATUSES = ['idle', 'rendering', 'completed', 'failed'] as const;
 export type JobReelRenderStatus = (typeof JOB_REEL_RENDER_STATUSES)[number];
 
-/** Full persisted state of a job reel project (content_creation_requests.generated_output). */
+/** Full state of a job reel draft — persisted in the browser (localStorage). */
 export const JobReelStateSchema = z.object({
   format: z.literal(JOB_REEL_FORMAT),
   /** Original pasted Pinterest URL (kept so the background can be re-resolved). */
   backgroundSourceUrl: z.string(),
-  /** Re-hosted background asset in Supabase Storage. */
+  /** Direct Pinterest CDN media URL (no re-hosting; render downloads from it). */
   backgroundUrl: z.string().nullable(),
   backgroundType: z.enum(['video', 'image']).nullable(),
   hook: JobReelHookSchema,
@@ -52,6 +52,8 @@ export const JobReelStateSchema = z.object({
   renderError: z.string().nullable().default(null),
   /** ISO timestamp — used to detect renders that died without reporting back. */
   renderStartedAt: z.string().nullable().default(null),
+  /** Server-side render ticket — lets the status poll survive reloads/app switches. */
+  renderTicket: z.string().nullable().default(null),
   finalVideoUrl: z.string().nullable().default(null),
   step: z.number().int().min(1).max(4),
 });
@@ -101,6 +103,7 @@ export function createEmptyJobReelState(): JobReelState {
     renderStatus: 'idle',
     renderError: null,
     renderStartedAt: null,
+    renderTicket: null,
     finalVideoUrl: null,
     step: 1,
   };
