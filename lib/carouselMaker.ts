@@ -48,6 +48,8 @@ export const CarouselMakerStateSchema = z.object({
   styleId: z.string().default(DEFAULT_CAROUSEL_STYLE_ID),
   /** Photos of the creator — the face lock, shared by every slide. */
   subjectImageUrls: z.array(z.string()).default([]),
+  /** How to spot the subject photo (e.g. "the man in the white round-neck t-shirt"). */
+  subjectDescription: z.string().default(''),
   slides: z.array(CarouselSlideSchema).min(1),
   activeSlideId: z.string(),
 });
@@ -87,6 +89,7 @@ export function createEmptyCarouselState(): CarouselMakerState {
     format: CAROUSEL_MAKER_FORMAT,
     styleId: DEFAULT_CAROUSEL_STYLE_ID,
     subjectImageUrls: [],
+    subjectDescription: '',
     slides,
     activeSlideId: hook.id,
   };
@@ -140,8 +143,11 @@ export function composeSlidePrompt(options: {
     'role' | 'text' | 'themeNote' | 'movieRefImageUrls' | 'extraRefImageUrls'
   >;
   subjectImageUrls: string[];
+  /** Visual description of the subject photo (e.g. "the man in the white round-neck t-shirt"). */
+  subjectDescription?: string;
 }): ComposedSlidePrompt {
   const { slide, subjectImageUrls } = options;
+  const subjectDescription = options.subjectDescription?.trim() ?? '';
   const style = options.style ?? getCarouselStyle(options.styleId ?? DEFAULT_CAROUSEL_STYLE_ID);
 
   const referenceImageUrls = [
@@ -160,14 +166,18 @@ export function composeSlidePrompt(options: {
       : `images ${subjectCount + 1}–${subjectCount + movieCount}`;
 
   // Face identity is the #1 failure mode — casting must be the first and
-  // loudest instruction, and the movie poster must be framed as style-only
-  // with an explicit actor replacement order.
+  // loudest instruction. Index-only references ("image 1") are not reliable,
+  // so the subject is also identified by appearance and by photo type.
+  const subjectIdentifier = subjectDescription
+    ? `the SUBJECT is the person in the plain real-life photo — ${subjectDescription}`
+    : 'the SUBJECT is the person in the plain real-life photo (an ordinary casual snapshot with NO title lettering, NO graphics, NO poster design)';
+
   const castingParts: string[] = [
-    `CASTING — the most important rule of this task: the ONLY person allowed on this poster is the SUBJECT shown in ${subjectRefLabel}. Recreate the SUBJECT's face with photographic identity accuracy — same bone structure, eyes, nose, lips, skin tone, hairline and beard shape. This is a real person; do not beautify, blend or replace their face.`,
+    `CASTING — the most important rule of this task. Among the attached reference images, ${subjectIdentifier}. That photo is attached as ${subjectRefLabel}. The ONLY person allowed on this poster is that SUBJECT. Recreate the SUBJECT's face with photographic identity accuracy — same bone structure, eyes, nose, lips, skin tone, hairline and beard shape. This is a real person; do not beautify, blend or replace their face.`,
   ];
   if (movieCount > 0) {
     castingParts.push(
-      `The MOVIE POSTER in ${movieRefLabel} is a STYLE reference ONLY. The actor in that poster must NOT appear in the output — completely REPLACE him with the SUBJECT from ${subjectRefLabel}, as if the SUBJECT starred in that movie. Take only the poster's wardrobe styling, color palette, environment, era, pose energy, typography treatment and mood. Any resemblance to the poster's original actor is a failure.`
+      `The MOVIE POSTER reference (${movieRefLabel} — the stylized image with big title lettering and poster graphics) is a STYLE reference ONLY. The actor in that poster must NOT appear in the output — completely REPLACE him with the SUBJECT described above, as if the SUBJECT starred in that movie. Take only the poster's wardrobe styling, color palette, environment, era, pose energy, typography treatment and mood. Any resemblance to the poster's original actor is a failure.`
     );
   }
   const castingBlock = castingParts.join('\n');
@@ -176,7 +186,7 @@ export function composeSlidePrompt(options: {
   let refIndex = 1;
   for (let i = 0; i < subjectCount; i += 1) {
     manifest.push(
-      `Reference image ${refIndex}: the SUBJECT — the one and only face allowed in the hero role.`
+      `Reference image ${refIndex}: the SUBJECT${subjectDescription ? ` (${subjectDescription})` : ''} — the one and only face allowed in the hero role.`
     );
     refIndex += 1;
   }
@@ -215,7 +225,7 @@ export function composeSlidePrompt(options: {
     themeParts.push(`Theme direction from the creator: ${slide.themeNote.trim()}`);
   }
 
-  const finalIdentityCheck = `FINAL CHECK before you render: compare the hero's face against ${subjectRefLabel}. It must be the SAME person — not the movie poster actor, not a lookalike, not a blend. If it is not the SUBJECT, the image is wrong.`;
+  const finalIdentityCheck = `FINAL CHECK before you render: compare the hero's face against the SUBJECT photo${subjectDescription ? ` (${subjectDescription})` : ''}. It must be the SAME person — not the movie poster actor, not a lookalike, not a blend. If it is not the SUBJECT, the image is wrong.`;
 
   const prompt = [
     castingBlock,
