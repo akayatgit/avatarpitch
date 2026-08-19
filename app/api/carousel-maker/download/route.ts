@@ -4,32 +4,30 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
-function isSupabaseStorageUrl(src: string | null): src is string {
+function isReplicateImageUrl(src: string | null): src is string {
   if (!src) return false;
-  const base =
-    process.env.SUPABASE_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL;
-  if (!base) return false;
   try {
-    return new URL(src).origin === new URL(base).origin;
+    const url = new URL(src);
+    if (url.protocol !== 'https:') return false;
+    const host = url.hostname.toLowerCase();
+    return host === 'replicate.delivery' || host.endsWith('.replicate.delivery');
   } catch {
     return false;
   }
 }
 
 /**
- * Same-origin download proxy for generated slides.
+ * Same-origin download proxy for freshly generated slides.
  *
- * The PNGs live in Supabase Storage — a different origin, so the anchor
+ * The PNG lives on Replicate's CDN — a different origin, so the anchor
  * `download` attribute is ignored and mobile browsers open the image in a
  * tab. Streaming through here with `Content-Disposition: attachment` gives
  * iOS/Android the real save prompt.
  */
 export async function GET(request: NextRequest) {
   const src = request.nextUrl.searchParams.get('src');
-  if (!isSupabaseStorageUrl(src)) {
-    return NextResponse.json({ error: 'Not a storage URL' }, { status: 400 });
+  if (!isReplicateImageUrl(src)) {
+    return NextResponse.json({ error: 'Not a generated image URL' }, { status: 400 });
   }
 
   const rawName = request.nextUrl.searchParams.get('name') ?? '';
@@ -43,10 +41,13 @@ export async function GET(request: NextRequest) {
   try {
     upstream = await fetch(src, { cache: 'no-store' });
   } catch {
-    return NextResponse.json({ error: 'Storage is unreachable right now' }, { status: 502 });
+    return NextResponse.json({ error: 'The image is no longer available — generate again' }, { status: 502 });
   }
   if (!upstream.ok || !upstream.body) {
-    return NextResponse.json({ error: `Image not found (${upstream.status})` }, { status: 404 });
+    return NextResponse.json(
+      { error: `The image is no longer available (${upstream.status}) — generate again` },
+      { status: 404 }
+    );
   }
 
   const headers = new Headers({
