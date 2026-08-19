@@ -4,7 +4,6 @@ import {
   getReplicateClient,
   prepareImageInputs,
 } from '@/lib/tools/replicateClient';
-import { persistRemoteFileToStorage } from '@/lib/storage';
 import { CAROUSEL_ASPECT_RATIO } from '@/lib/carouselMaker';
 
 export const runtime = 'nodejs';
@@ -65,14 +64,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Replicate URLs expire — re-host so the draft survives.
-    const persistedUrl = await persistRemoteFileToStorage(imageUrl, {
-      folder: 'carousel-maker/images',
-      fileName: `slide-${Date.now()}.png`,
-      contentType: 'image/png',
-    });
-
-    return NextResponse.json({ success: true, imageUrl: persistedUrl });
+    // Instant generate + download — no storage backend. Replicate URLs last
+    // for the session; the user downloads the poster immediately.
+    return NextResponse.json({ success: true, imageUrl });
   } catch (error) {
     console.error('Carousel slide generation error:', error);
     return NextResponse.json(

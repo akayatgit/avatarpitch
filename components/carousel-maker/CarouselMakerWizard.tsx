@@ -36,8 +36,20 @@ function loadDraft(): CarouselMakerState | null {
 function saveDraft(state: CarouselMakerState) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.error('Could not save the carousel draft locally:', error);
+  } catch {
+    // Data URLs can blow the quota — keep text + latest generation URL.
+    try {
+      const slim: CarouselMakerState = {
+        ...state,
+        slides: state.slides.map((slide) => ({
+          ...slide,
+          generations: slide.generations.slice(-1),
+        })),
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
+    } catch (error) {
+      console.error('Could not save the carousel draft locally:', error);
+    }
   }
 }
 
