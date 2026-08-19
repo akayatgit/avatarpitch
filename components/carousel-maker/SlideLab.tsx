@@ -6,6 +6,7 @@ import {
   selectedGeneration,
   type CarouselSlide,
 } from '@/lib/carouselMaker';
+import { downloadImage } from '@/lib/carouselMakerClient';
 import ReferenceImagePicker from './ReferenceImagePicker';
 
 const ROLE_COPY: Record<
@@ -59,12 +60,7 @@ export default function SlideLab({
 }: SlideLabProps) {
   const copy = ROLE_COPY[slide.role];
   const current = selectedGeneration(slide);
-
-  const downloadHref = current
-    ? `/api/carousel-maker/download?src=${encodeURIComponent(current.imageUrl)}&name=${encodeURIComponent(
-        `${label.toLowerCase().replace(/\s+/g, '-')}.png`
-      )}`
-    : null;
+  const downloadName = `${label.toLowerCase().replace(/\s+/g, '-')}.png`;
 
   return (
     <div className="space-y-6">
@@ -101,13 +97,14 @@ export default function SlideLab({
 
         {current && !generating && (
           <div className="absolute bottom-3 right-3 flex gap-2">
-            <a
-              href={downloadHref ?? '#'}
+            <button
+              type="button"
+              onClick={() => downloadImage(current.imageUrl, downloadName)}
               className="w-11 h-11 rounded-full bg-black/70 border border-gray-700 text-white flex items-center justify-center touch-manipulation active:bg-[#D1FE17] active:text-black"
               aria-label="Download this slide"
             >
               <Download className="w-[18px] h-[18px]" />
-            </a>
+            </button>
             <button
               type="button"
               onClick={() => onDeleteGeneration(current.id)}

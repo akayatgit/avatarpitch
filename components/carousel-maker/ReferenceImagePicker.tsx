@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { ImagePlus, Loader2, X } from 'lucide-react';
+import { fileToCompressedDataUrl } from '@/lib/carouselMakerClient';
 
 interface ReferenceImagePickerProps {
   label: string;
@@ -13,8 +14,8 @@ interface ReferenceImagePickerProps {
 
 /**
  * Mobile-first reference image grid: tap to add from gallery/camera,
- * tap the X to remove. Uploads go through /api/upload-image so every
- * reference has a stable public URL for Replicate.
+ * tap the X to remove. Photos stay in the browser as compressed data URLs
+ * and go straight to Replicate — no storage backend.
  */
 export default function ReferenceImagePicker({
   label,
@@ -36,14 +37,7 @@ export default function ReferenceImagePicker({
       const selected = Array.from(files).slice(0, room);
       const uploaded: string[] = [];
       for (const file of selected) {
-        const formData = new FormData();
-        formData.append('images', file);
-        const response = await fetch('/api/upload-image', { method: 'POST', body: formData });
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok || !data?.url) {
-          throw new Error(data?.error || 'Upload failed');
-        }
-        uploaded.push(data.url);
+        uploaded.push(await fileToCompressedDataUrl(file));
       }
       if (uploaded.length > 0) {
         onChange([...urls, ...uploaded]);
