@@ -62,7 +62,7 @@ export const GRANDEUR_V1: CarouselStyle = {
     ].join(' '),
   },
   negativeCues:
-    'Avoid: distorted or altered face, changed facial identity, extra fingers, misspelled / duplicated / garbled words, placeholder text, unreadable glyphs, watermarks, third-party brand logos, low-resolution textures, flat lighting.',
+    "Avoid: using the movie poster actor's face or any celebrity face for the hero, blending two faces together, distorted or altered facial identity, extra fingers, misspelled / duplicated / garbled words, placeholder text, unreadable glyphs, watermarks, third-party brand logos, low-resolution textures, flat lighting.",
 };
 
 const STYLE_REGISTRY: Record<string, CarouselStyle> = {
