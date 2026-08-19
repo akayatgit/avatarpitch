@@ -150,17 +150,39 @@ export function composeSlidePrompt(options: {
     ...slide.extraRefImageUrls,
   ].filter(Boolean);
 
+  const subjectCount = subjectImageUrls.length;
+  const movieCount = slide.movieRefImageUrls.length;
+  const subjectRefLabel =
+    subjectCount === 1 ? 'image 1' : `images 1–${subjectCount}`;
+  const movieRefLabel =
+    movieCount === 1
+      ? `image ${subjectCount + 1}`
+      : `images ${subjectCount + 1}–${subjectCount + movieCount}`;
+
+  // Face identity is the #1 failure mode — casting must be the first and
+  // loudest instruction, and the movie poster must be framed as style-only
+  // with an explicit actor replacement order.
+  const castingParts: string[] = [
+    `CASTING — the most important rule of this task: the ONLY person allowed on this poster is the SUBJECT shown in ${subjectRefLabel}. Recreate the SUBJECT's face with photographic identity accuracy — same bone structure, eyes, nose, lips, skin tone, hairline and beard shape. This is a real person; do not beautify, blend or replace their face.`,
+  ];
+  if (movieCount > 0) {
+    castingParts.push(
+      `The MOVIE POSTER in ${movieRefLabel} is a STYLE reference ONLY. The actor in that poster must NOT appear in the output — completely REPLACE him with the SUBJECT from ${subjectRefLabel}, as if the SUBJECT starred in that movie. Take only the poster's wardrobe styling, color palette, environment, era, pose energy, typography treatment and mood. Any resemblance to the poster's original actor is a failure.`
+    );
+  }
+  const castingBlock = castingParts.join('\n');
+
   const manifest: string[] = [];
   let refIndex = 1;
-  for (let i = 0; i < subjectImageUrls.length; i += 1) {
+  for (let i = 0; i < subjectCount; i += 1) {
     manifest.push(
-      `Reference image ${refIndex}: the SUBJECT — this exact person is the hero; preserve this face with perfect identity.`
+      `Reference image ${refIndex}: the SUBJECT — the one and only face allowed in the hero role.`
     );
     refIndex += 1;
   }
-  for (let i = 0; i < slide.movieRefImageUrls.length; i += 1) {
+  for (let i = 0; i < movieCount; i += 1) {
     manifest.push(
-      `Reference image ${refIndex}: MOVIE POSTER style reference — borrow its wardrobe styling, color palette, environment, era, pose energy and mood. Do NOT copy the actor's face from it.`
+      `Reference image ${refIndex}: MOVIE POSTER — style only; its actor is replaced by the SUBJECT.`
     );
     refIndex += 1;
   }
@@ -184,22 +206,26 @@ export function composeSlidePrompt(options: {
       : `Render this exact text as the poster typography, spelled letter-for-letter perfectly: "${textLines[0] ?? ''}"`;
 
   const themeParts: string[] = [];
-  if (slide.movieRefImageUrls.length > 0) {
+  if (movieCount > 0) {
     themeParts.push(
-      'Restyle the entire composition in the visual language of the MOVIE POSTER reference: its wardrobe, palette, environment, era and mood — while keeping the subject face identical to the subject reference.'
+      `Restyle the entire composition in the visual language of the MOVIE POSTER reference (${movieRefLabel}): its wardrobe, palette, environment, era and mood — with the SUBJECT's face from ${subjectRefLabel} in the starring role.`
     );
   }
   if (slide.themeNote.trim()) {
     themeParts.push(`Theme direction from the creator: ${slide.themeNote.trim()}`);
   }
 
+  const finalIdentityCheck = `FINAL CHECK before you render: compare the hero's face against ${subjectRefLabel}. It must be the SAME person — not the movie poster actor, not a lookalike, not a blend. If it is not the SUBJECT, the image is wrong.`;
+
   const prompt = [
+    castingBlock,
     style.slideRolePrompts[slide.role],
     style.basePrompt,
     textBlock,
     ...(themeParts.length > 0 ? [themeParts.join(' ')] : []),
     ...(manifest.length > 0 ? [manifest.join('\n')] : []),
     style.negativeCues,
+    finalIdentityCheck,
   ].join('\n\n');
 
   return { prompt, referenceImageUrls };
