@@ -143,6 +143,7 @@ export default function CarouselMakerWizard() {
         styleId: current.styleId,
         slide,
         subjectImageUrls: current.subjectImageUrls,
+        subjectDescription: current.subjectDescription,
       });
 
       const response = await fetch('/api/carousel-maker/generate-slide', {
@@ -228,6 +229,24 @@ export default function CarouselMakerWizard() {
           onChange={(urls) => setState((prev) => ({ ...prev, subjectImageUrls: urls }))}
           max={3}
         />
+        <div className="mt-4">
+          <label className="text-sm font-medium text-gray-200" htmlFor="subject-description">
+            Describe your photo
+          </label>
+          <input
+            id="subject-description"
+            type="text"
+            value={state.subjectDescription}
+            onChange={(event) =>
+              setState((prev) => ({ ...prev, subjectDescription: event.target.value }))
+            }
+            placeholder="e.g. the man in the white round-neck t-shirt"
+            className="mt-2 w-full rounded-xl bg-gray-950 border border-gray-800 text-white text-base px-4 py-3 min-h-[48px] placeholder:text-gray-600 focus:border-[#D1FE17] focus:outline-none"
+          />
+          <p className="text-[11px] text-gray-600 mt-1">
+            Tells the AI exactly which reference photo is you — big boost for face accuracy.
+          </p>
+        </div>
       </div>
 
       {/* Slide strip */}
