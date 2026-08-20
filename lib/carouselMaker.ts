@@ -5,6 +5,10 @@ import {
   type CarouselSlideRole,
   type CarouselStyle,
 } from '@/lib/styles/grandeur';
+import {
+  DEFAULT_CAROUSEL_IMAGE_MODEL_ID,
+  isCarouselImageModelId,
+} from '@/lib/carouselModels';
 
 export const CAROUSEL_MAKER_FORMAT = 'carouselmaker_v1' as const;
 
@@ -46,6 +50,13 @@ export type CarouselSlide = z.infer<typeof CarouselSlideSchema>;
 export const CarouselMakerStateSchema = z.object({
   format: z.literal(CAROUSEL_MAKER_FORMAT),
   styleId: z.string().default(DEFAULT_CAROUSEL_STYLE_ID),
+  /** Selected Replicate image model for generation. */
+  imageModelId: z
+    .string()
+    .default(DEFAULT_CAROUSEL_IMAGE_MODEL_ID)
+    .transform((id) =>
+      isCarouselImageModelId(id) ? id : DEFAULT_CAROUSEL_IMAGE_MODEL_ID
+    ),
   /** Photos of the creator — the face lock, shared by every slide. */
   subjectImageUrls: z.array(z.string()).default([]),
   /** How to spot the subject photo (e.g. "the man in the white round-neck t-shirt"). */
@@ -88,6 +99,7 @@ export function createEmptyCarouselState(): CarouselMakerState {
   return {
     format: CAROUSEL_MAKER_FORMAT,
     styleId: DEFAULT_CAROUSEL_STYLE_ID,
+    imageModelId: DEFAULT_CAROUSEL_IMAGE_MODEL_ID,
     subjectImageUrls: [],
     subjectDescription: '',
     slides,

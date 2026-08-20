@@ -16,6 +16,11 @@ import {
   type CarouselMakerState,
   type CarouselSlide,
 } from '@/lib/carouselMaker';
+import {
+  CAROUSEL_IMAGE_MODELS,
+  getCarouselImageModel,
+  type CarouselImageModelId,
+} from '@/lib/carouselModels';
 import ReferenceImagePicker from './ReferenceImagePicker';
 import SlideLab from './SlideLab';
 
@@ -149,7 +154,11 @@ export default function CarouselMakerWizard() {
       const response = await fetch('/api/carousel-maker/generate-slide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, referenceImageUrls }),
+        body: JSON.stringify({
+          prompt,
+          referenceImageUrls,
+          model: current.imageModelId,
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.imageUrl) {
@@ -247,6 +256,45 @@ export default function CarouselMakerWizard() {
             Tells the AI exactly which reference photo is you — big boost for face accuracy.
           </p>
         </div>
+      </div>
+
+      {/* Model picker */}
+      <div className="mb-6">
+        <div className="flex items-baseline justify-between gap-2 mb-2">
+          <span className="text-sm font-medium text-gray-200">Image model</span>
+          <span className="text-[11px] text-gray-500 truncate">
+            {getCarouselImageModel(state.imageModelId).name}
+          </span>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4">
+          {CAROUSEL_IMAGE_MODELS.map((model) => {
+            const isActive = state.imageModelId === model.id;
+            return (
+              <button
+                key={model.id}
+                type="button"
+                onClick={() =>
+                  setState((prev) => ({
+                    ...prev,
+                    imageModelId: model.id as CarouselImageModelId,
+                  }))
+                }
+                className={`flex-shrink-0 min-h-[44px] px-3 rounded-full text-sm font-medium touch-manipulation border transition-colors ${
+                  isActive
+                    ? 'bg-[#D1FE17] text-black border-[#D1FE17]'
+                    : 'bg-gray-950 text-gray-300 border-gray-800 active:border-[#D1FE17]/50'
+                }`}
+              >
+                {model.shortName}
+              </button>
+            );
+          })}
+        </div>
+        {getCarouselImageModel(state.imageModelId).hint && (
+          <p className="text-[11px] text-gray-600 mt-2">
+            {getCarouselImageModel(state.imageModelId).hint}
+          </p>
+        )}
       </div>
 
       {/* Slide strip */}
