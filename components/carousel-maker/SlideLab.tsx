@@ -91,7 +91,7 @@ export default function SlideLab({
         {generating && (
           <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3">
             <div className="w-10 h-10 rounded-full border-2 border-[#D1FE17] border-t-transparent animate-spin" />
-            <p className="text-xs text-gray-300">Composing + blending face… ~60–90s</p>
+            <p className="text-xs text-gray-300">Directing your poster… ~30–60s</p>
           </div>
         )}
 
