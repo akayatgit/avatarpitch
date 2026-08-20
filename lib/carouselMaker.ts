@@ -207,17 +207,7 @@ export function composeSlidePrompt(options: {
     refIndex += 1;
   }
 
-  const textLines = slide.text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const textBlock =
-    textLines.length > 1
-      ? `Render these exact lines as the poster text, spelled letter-for-letter perfectly:\n${textLines
-          .map((line) => `"${line}"`)
-          .join('\n')}`
-      : `Render this exact text as the poster typography, spelled letter-for-letter perfectly: "${textLines[0] ?? ''}"`;
+  const textBlock = formatPosterTextBlock(slide.text);
 
   const themeParts: string[] = [];
   if (movieCount > 0) {
@@ -250,6 +240,71 @@ export function composeSlidePrompt(options: {
   ].join('\n\n');
 
   return { prompt, referenceImageUrls };
+}
+
+/**
+ * Turn creator markup into prompt language the image model can follow.
+ * - Real newlines OR typed `\n` → stacked lines ("Line 1 is… Next line is…")
+ * - `\i…\i` → multicolor highlight on those words
+ * Never leaves literal `\n` or `\i` characters in the final prompt.
+ */
+export function formatPosterTextBlock(rawText: string): string {
+  const normalized = rawText.replace(/\\n/g, '\n');
+  const lines = normalized
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return 'No poster text was provided — do not invent any headline copy.';
+  }
+
+  const highlights: string[] = [];
+  const cleanLines = lines.map((line) => {
+    let working = line.replace(/\\i(.+?)\\i/g, (_match, phrase: string) => {
+      const trimmed = phrase.trim();
+      if (trimmed) highlights.push(trimmed);
+      return phrase;
+    });
+    // Any leftover unclosed \i markers are stripped — do not paint them on the poster
+    working = working.replace(/\\i/g, '');
+    return working.replace(/\s+/g, ' ').trim();
+  });
+
+  const layoutParts: string[] = [
+    'TEXT LAYOUT — stack these lines exactly in this order. Do not invent, reorder, merge or drop lines. Never render the characters "\\n" or "\\i" as text on the poster.',
+  ];
+
+  cleanLines.forEach((line, index) => {
+    if (index === 0) {
+      layoutParts.push(`Line 1 is: "${line}".`);
+    } else {
+      layoutParts.push(`Next line is: "${line}".`);
+    }
+  });
+
+  layoutParts.push(
+    'Keep each line on its own row, centered, with clear vertical spacing between lines so the hierarchy reads as a multi-line poster headline.'
+  );
+
+  if (highlights.length > 0) {
+    const unique = [...new Set(highlights)];
+    layoutParts.push(
+      `MULTICOLOR HIGHLIGHT — make these words the visual heroes in a contrasting bright metallic color (chrome silver, emerald, ruby-red or electric teal against the gold body text): ${unique
+        .map((phrase) => `"${phrase}"`)
+        .join(', ')}. Larger scale, stronger glow, sharper bevels than the surrounding words.`
+    );
+  } else {
+    layoutParts.push(
+      'MULTICOLOR HIERARCHY — when a line contains a number or a key title word, render that word in a contrasting bright metallic color against the gold body text so the main idea pops.'
+    );
+  }
+
+  layoutParts.push(
+    'LINE DECORATORS — frame the text block with premium ornamental line decorators: thin glowing filigree underlines, curved flourish brackets, diamond or gem separators between lines, and soft radiant under-glows. Shiny, bright, highly saturated color tones with bloom glow and deep drop shadows — never dull, muddy or flat.'
+  );
+
+  return layoutParts.join(' ');
 }
 
 /** A slide is ready to generate once there is text and a subject photo. */
