@@ -16,19 +16,19 @@ const ROLE_COPY: Record<
   hook: {
     title: 'Hook — slide 1',
     textLabel: 'Hook text (rendered on the poster)',
-    textPlaceholder: "e.g. TOP MNC'S ARE HIRING — Both for Freshers & Experienced",
+    textPlaceholder: "e.g. Top MNC's are hiring\\n\\i2026\\i\\nFor Learning, Career & Growth",
     empty: 'The scroll-stopper. You as the movie hero with the hook as massive metallic text.',
   },
   content: {
     title: 'Content slide',
     textLabel: 'Slide content (one line per row)',
-    textPlaceholder: 'e.g.\n1. Infosys — Data Analyst\n2. TCS — QA Engineer\n3. Zoho — Backend Dev',
+    textPlaceholder: 'e.g.\\n1. Infosys — Data Analyst\\n2. TCS — QA Engineer\\n3. Zoho — Backend Dev',
     empty: 'Same grandeur style, but the information owns the frame.',
   },
   cta: {
     title: 'CTA — final slide',
     textLabel: 'CTA text',
-    textPlaceholder: 'e.g. Follow for daily job updates\nComment "JOBS" for the link',
+    textPlaceholder: 'e.g. Follow for daily job updates\\nComment "JOBS" for the link',
     empty: 'You facing the camera, inviting the follow/comment/save.',
   },
 };
@@ -163,7 +163,8 @@ export default function SlideLab({
           className="mt-2 w-full rounded-xl bg-gray-950 border border-gray-800 text-white text-base px-4 py-3 placeholder:text-gray-600 focus:border-[#D1FE17] focus:outline-none resize-y"
         />
         <p className="text-[11px] text-gray-600 mt-1">
-          Rendered letter-for-letter as the poster typography.
+          Use Enter or type \n for a new line. Wrap key words in \i like \i2026\i for a bright multicolor highlight.
+          Markup never appears on the poster — only the layout.
         </p>
       </div>
 
