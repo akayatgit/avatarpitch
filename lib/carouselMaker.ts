@@ -252,6 +252,59 @@ export function composeSlidePrompt(options: {
   return { prompt, referenceImageUrls };
 }
 
+/**
+ * Second-pass prompt: the draft poster already has the right composition,
+ * but Nano Banana tends to paste the selfie as-is. This pass forces a true
+ * face integration — identity from subject, hair/beard/attitude from poster,
+ * lighting matched to the scene.
+ */
+export function composeFaceBlendPrompt(options: {
+  subjectDescription?: string;
+  subjectCount: number;
+  movieCount: number;
+  themeNote?: string;
+}): { prompt: string } {
+  const subjectDescription = options.subjectDescription?.trim() ?? '';
+  const subjectLabel =
+    options.subjectCount <= 1
+      ? 'image 2'
+      : `images 2–${1 + options.subjectCount}`;
+  const movieStart = 2 + options.subjectCount;
+  const movieLabel =
+    options.movieCount <= 0
+      ? null
+      : options.movieCount === 1
+        ? `image ${movieStart}`
+        : `images ${movieStart}–${movieStart + options.movieCount - 1}`;
+
+  const subjectWho = subjectDescription
+    ? `the SUBJECT (${subjectDescription}) in the plain real-life photo (${subjectLabel})`
+    : `the SUBJECT in the plain real-life photo (${subjectLabel}) — ordinary casual snapshot, no poster graphics`;
+
+  const restyleBlock = movieLabel
+    ? `RESTYLE — the biggest failure to fix: the draft still shows the SUBJECT photo's hair, beard and expression as-is. That is wrong. Completely restyle the male lead's hairstyle, beard shape, expression and attitude to match the starring male lead in the STYLE POSTER (${movieLabel}). Keep only WHO he is from the subject photo — bone structure, eyes, nose, lips. The casual selfie haircut, selfie beard and flat selfie expression must be gone.`
+    : `RESTYLE: give the male lead a cinematic movie-star hairstyle, beard and intense expression that fits the scene. Do NOT keep the casual selfie haircut, selfie beard or flat selfie expression.`;
+
+  const themeLine = options.themeNote?.trim()
+    ? `Theme direction: ${options.themeNote.trim()}.`
+    : '';
+
+  const prompt = [
+    'FACE INTEGRATION PASS — edit the DRAFT POSTER (image 1). Keep the entire composition, typography, background, supporting characters, props, body pose and wardrobe EXACTLY as in image 1. You are only refining the starring male lead\'s head so it looks naturally shot in this scene — not pasted on.',
+    `IDENTITY: the face must be ${subjectWho}. Same bone structure, eyes, nose, lips — the same person. Fair skin tone continuous from face through neck to the hands/arms already in image 1.`,
+    restyleBlock,
+    'RELIGHT: match the face to the ambient light of image 1. If the scene is fire / golden-hour / orange rim light, the face MUST pick up the same warm directional highlights, rim light and shadows as the body, clothes and environment. A flat, cool, selfie-lit face on a dramatically lit body is a failure.',
+    'BLEND: resize the head to natural proportion with the body (never oversized). Seamlessly fuse the jaw and neck into the collar — no hard seam, no floating head, no pasted-on look.',
+    themeLine,
+    'Do not change the poster text. Do not invent offer badges. Do not remove supporting characters. Do not redesign the background.',
+    'FINAL CHECK: if the hair/beard still look like the casual subject photo, or the face lighting does not match the body, the image is wrong — fix it.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  return { prompt };
+}
+
 /** A slide is ready to generate once there is text and a subject photo. */
 export function slideGenerationBlockers(
   state: CarouselMakerState,
