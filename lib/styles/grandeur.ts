@@ -45,7 +45,7 @@ export const GRANDEUR_V1: CarouselStyle = {
       'This is the HOOK slide (slide 1 of an Instagram carousel) — maximum drama.',
       'The headline typography dominates roughly one third of the frame (top or bottom third) and the subject is the unmistakable hero of the composition.',
       "Add a small elegant hand-written script 'Swipe →' cue at the bottom-center.",
-      'If the hook promises offers or benefits, render up to four rounded gold-outlined pill badges with tiny icons stacked along the left edge (e.g. 100% FREE, Beginner to Advanced).',
+      'Do NOT invent extra promotional copy — no offer badges, no benefit pills, no side labels like "100% FREE" or "Beginner to Advanced". Only render the exact text the creator provided.',
     ].join(' '),
     content: [
       'This is a CONTENT slide (middle of an Instagram carousel) — same art direction, but readability comes first.',
@@ -62,7 +62,7 @@ export const GRANDEUR_V1: CarouselStyle = {
     ].join(' '),
   },
   negativeCues:
-    "Avoid: using the movie poster actor's face or any celebrity face for the hero, blending two faces together, distorted or altered facial identity, extra fingers, misspelled / duplicated / garbled words, placeholder text, unreadable glyphs, watermarks, third-party brand logos, low-resolution textures, flat lighting.",
+    'Avoid: inventing extra promotional text or offer badges (no "100% FREE", "Beginner to Advanced", benefit pills, side labels, or any wording not provided by the creator), using the movie poster actor\'s face or any celebrity face for the hero, blending two faces together, distorted or altered facial identity, extra fingers, misspelled / duplicated / garbled words, placeholder text, unreadable glyphs, watermarks, third-party brand logos, low-resolution textures, flat lighting.',
 };
 
 const STYLE_REGISTRY: Record<string, CarouselStyle> = {
