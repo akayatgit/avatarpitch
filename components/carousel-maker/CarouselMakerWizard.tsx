@@ -210,7 +210,7 @@ export default function CarouselMakerWizard() {
   const hasGenerated = activeSlide.generations.length > 0;
 
   return (
-    <div className="max-w-lg mx-auto px-4 pb-36">
+    <div className="max-w-lg mx-auto px-4 pb-52">
       {/* Header */}
       <div className="flex items-center justify-between pt-6 pb-4">
         <div className="min-w-0">
@@ -256,45 +256,6 @@ export default function CarouselMakerWizard() {
             Tells the AI exactly which reference photo is you — big boost for face accuracy.
           </p>
         </div>
-      </div>
-
-      {/* Model picker */}
-      <div className="mb-6">
-        <div className="flex items-baseline justify-between gap-2 mb-2">
-          <span className="text-sm font-medium text-gray-200">Image model</span>
-          <span className="text-[11px] text-gray-500 truncate">
-            {getCarouselImageModel(state.imageModelId).name}
-          </span>
-        </div>
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4">
-          {CAROUSEL_IMAGE_MODELS.map((model) => {
-            const isActive = state.imageModelId === model.id;
-            return (
-              <button
-                key={model.id}
-                type="button"
-                onClick={() =>
-                  setState((prev) => ({
-                    ...prev,
-                    imageModelId: model.id as CarouselImageModelId,
-                  }))
-                }
-                className={`flex-shrink-0 min-h-[44px] px-3 rounded-full text-sm font-medium touch-manipulation border transition-colors ${
-                  isActive
-                    ? 'bg-[#D1FE17] text-black border-[#D1FE17]'
-                    : 'bg-gray-950 text-gray-300 border-gray-800 active:border-[#D1FE17]/50'
-                }`}
-              >
-                {model.shortName}
-              </button>
-            );
-          })}
-        </div>
-        {getCarouselImageModel(state.imageModelId).hint && (
-          <p className="text-[11px] text-gray-600 mt-2">
-            {getCarouselImageModel(state.imageModelId).hint}
-          </p>
-        )}
       </div>
 
       {/* Slide strip */}
@@ -381,9 +342,49 @@ export default function CarouselMakerWizard() {
         }}
       />
 
-      {/* Sticky primary action — always in the thumb zone */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 bg-black/90 backdrop-blur border-t border-gray-800">
+      {/* Sticky primary action — model + generate always in the thumb zone */}
+      <div className="fixed bottom-0 left-0 right-0 z-20 bg-black/95 backdrop-blur border-t border-gray-800">
         <div className="max-w-lg mx-auto px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+          <div className="mb-3">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[#D1FE17]">
+                Model
+              </span>
+              <span className="text-[11px] text-gray-400 truncate">
+                {getCarouselImageModel(state.imageModelId).name}
+              </span>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+              {CAROUSEL_IMAGE_MODELS.map((model) => {
+                const isActive = state.imageModelId === model.id;
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    onClick={() =>
+                      setState((prev) => ({
+                        ...prev,
+                        imageModelId: model.id as CarouselImageModelId,
+                      }))
+                    }
+                    className={`flex-shrink-0 min-h-[40px] px-3 rounded-full text-xs font-semibold touch-manipulation border transition-colors ${
+                      isActive
+                        ? 'bg-[#D1FE17] text-black border-[#D1FE17]'
+                        : 'bg-gray-950 text-gray-300 border-gray-700 active:border-[#D1FE17]/50'
+                    }`}
+                  >
+                    {model.shortName}
+                  </button>
+                );
+              })}
+            </div>
+            {getCarouselImageModel(state.imageModelId).hint && (
+              <p className="text-[10px] text-gray-500 mt-1.5">
+                {getCarouselImageModel(state.imageModelId).hint}
+              </p>
+            )}
+          </div>
+
           {(generateError || activeBlockers.length > 0) && (
             <p
               className={`text-xs mb-2 ${generateError ? 'text-red-400' : 'text-gray-500'}`}
