@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  extractMediaUrl,
-  getReplicateClient,
-  prepareImageInputs,
-} from '@/lib/tools/replicateClient';
+import { extractMediaUrl, getReplicateClient } from '@/lib/tools/replicateClient';
 import { CAROUSEL_ASPECT_RATIO } from '@/lib/carouselMaker';
+import {
+  buildCarouselModelInput,
+  getCarouselImageModel,
+  isCarouselImageModelId,
+  DEFAULT_CAROUSEL_IMAGE_MODEL_ID,
+} from '@/lib/carouselModels';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
-const NANO_BANANA_PRO_MODEL = 'google/nano-banana-pro' as const;
-
 /**
- * Generate one carousel slide with Nano Banana Pro.
- * The client composes the prompt (style + role + text + theme) and sends the
- * ordered reference images: subject photos, movie poster refs, extra refs.
+ * Generate one carousel slide with the selected image model.
+ * Default: Nano Banana Pro. Client sends the composed prompt + ordered refs
+ * (subject → movie poster → extra).
  */
 export async function POST(request: NextRequest) {
   try {
@@ -35,6 +35,11 @@ export async function POST(request: NextRequest) {
         )
       : [];
 
+    const modelId = isCarouselImageModelId(body.model)
+      ? body.model
+      : DEFAULT_CAROUSEL_IMAGE_MODEL_ID;
+    const model = getCarouselImageModel(modelId);
+
     const aspectRatio =
       typeof body.aspectRatio === 'string' && body.aspectRatio.trim()
         ? body.aspectRatio.trim()
@@ -43,30 +48,27 @@ export async function POST(request: NextRequest) {
     const resolution =
       body.resolution === '1K' || body.resolution === '4K' ? body.resolution : '2K';
 
-    const replicate = getReplicateClient();
-    const output = await replicate.run(NANO_BANANA_PRO_MODEL, {
-      input: {
-        prompt,
-        resolution,
-        image_input: prepareImageInputs(referenceImageUrls),
-        aspect_ratio: aspectRatio,
-        output_format: 'png',
-        safety_filter_level: 'block_only_high',
-        num_images: 1,
-      },
+    const input = buildCarouselModelInput({
+      modelId,
+      prompt,
+      referenceImageUrls: model.supportsRefs ? referenceImageUrls : [],
+      aspectRatio,
+      resolution,
     });
+
+    const replicate = getReplicateClient();
+    const output = await replicate.run(model.replicateId as `${string}/${string}`, { input });
 
     const imageUrl = extractMediaUrl(output);
     if (!imageUrl) {
       return NextResponse.json(
-        { error: 'Nano Banana Pro returned no image — try again' },
+        { error: `${model.name} returned no image — try again` },
         { status: 502 }
       );
     }
 
-    // Instant generate + download — no storage backend. Replicate URLs last
-    // for the session; the user downloads the poster immediately.
-    return NextResponse.json({ success: true, imageUrl });
+    // Instant generate + download — no storage backend.
+    return NextResponse.json({ success: true, imageUrl, model: modelId });
   } catch (error) {
     console.error('Carousel slide generation error:', error);
     return NextResponse.json(
