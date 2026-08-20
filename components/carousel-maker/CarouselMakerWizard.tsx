@@ -149,7 +149,14 @@ export default function CarouselMakerWizard() {
       const response = await fetch('/api/carousel-maker/generate-slide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, referenceImageUrls }),
+        body: JSON.stringify({
+          prompt,
+          referenceImageUrls,
+          subjectImageUrls: current.subjectImageUrls,
+          movieRefImageUrls: slide.movieRefImageUrls,
+          subjectDescription: current.subjectDescription,
+          themeNote: slide.themeNote,
+        }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.imageUrl) {
