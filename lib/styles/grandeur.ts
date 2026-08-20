@@ -23,7 +23,7 @@ export interface CarouselStyle {
 
 /**
  * Grandeur v1 — distilled from the reference set of competitor carousel
- * covers: one consistent hero subject, massive 3D metallic typography,
+ * covers: hero subject face-lock, massive 3D metallic typography,
  * Indian mass-hero movie-poster staging, golden cinematic atmosphere.
  */
 export const GRANDEUR_V1: CarouselStyle = {
@@ -33,19 +33,22 @@ export const GRANDEUR_V1: CarouselStyle = {
     'Indian blockbuster movie-poster composite: hero subject, massive 3D metallic typography, epic staged backgrounds, golden cinematic atmosphere.',
   basePrompt: [
     "Art direction — 'Grandeur' style, an Indian blockbuster movie-poster composite:",
-    "- The SUBJECT is rendered as a cinematic Indian movie star with the IDENTICAL face from the subject reference image — do not alter facial identity, structure, skin tone or beard shape. Groomed beard, styled voluminous hair, confident lead-actor pose, wardrobe styled like a film hero.",
-    '- Lighting: warm golden key light on the face, strong rim light separating the subject from the background, glossy high-contrast blockbuster color grade with a subtle edge vignette.',
-    "- Typography is the co-star: massive 3D metallic beveled lettering (polished gold by default; chrome-steel or emerald when the theme calls for it) with specular glints, embossed depth and ornamental filigree flourishes. When the text contains a number, render that numeral oversized as the focal anchor. Mix bold display capitals with one elegant hand-lettered script accent word. The lettering must NEVER cover the subject's face.",
-    '- Background: an epic staged cinematic environment with symmetric depth in Indian mass-hero poster language — rows of repeated background figures, palace steps, sunset fields, rooftops, ornate interiors or city skylines — themed to match the movie reference.',
+    '- HERO FACE: the starring male lead has the SUBJECT\'s facial identity (bone structure, eyes, nose, lips, who he is). Skin tone is fair and matches the body — one continuous person under one light.',
+    '- STYLING FROM THE POSTER / THEME (not from the subject photo): hairstyle, beard shape, expression, attitude, wardrobe and pose energy follow the movie poster reference and the creator\'s theme note. The subject photo is identity only — do not copy its casual haircut, casual beard, flat expression or casual outfit onto the hero.',
+    '- BLEND: the head is naturally proportionate to the body (never oversized or pasted-on). The neck, jaw and collar integrate as one continuous body. Face lighting matches the ambient scene — same golden-hour direction, highlights and shadows as the body, clothes and landscape. No flat front-lit face on a dramatically lit body.',
+    '- CAST: fully replicate the poster\'s composition and supporting elements — secondary characters (e.g. the woman / co-star), props, landscape and atmosphere all stay. Only the starring male lead\'s face is replaced with the SUBJECT.',
+    '- Lighting: warm golden key light consistent across face and body, strong rim light separating the hero from the background, glossy high-contrast blockbuster color grade with a subtle edge vignette.',
+    "- Typography is the co-star: massive 3D metallic beveled lettering (polished gold by default; chrome-steel or emerald when the theme calls for it) with specular glints, embossed depth and ornamental filigree flourishes. When the text contains a number, render that numeral oversized as the focal anchor. Mix bold display capitals with one elegant hand-lettered script accent word. The lettering must NEVER cover the hero's face.",
+    '- Background: an epic staged cinematic environment with symmetric depth in Indian mass-hero poster language — themed to match the movie reference.',
     '- Atmosphere: floating particles that suit the scene (rose petals, embers, golden confetti, flying papers), dramatic golden-hour or stormy sky, rich saturated palette (gold + black, gold + deep red, or teal-orange).',
     '- Finish: photorealistic 8K blockbuster poster composite, crisp print-quality typography, vertical Instagram poster framing, no watermarks.',
   ].join('\n'),
   slideRolePrompts: {
     hook: [
       'This is the HOOK slide (slide 1 of an Instagram carousel) — maximum drama.',
-      'The headline typography dominates roughly one third of the frame (top or bottom third) and the subject is the unmistakable hero of the composition.',
+      'The headline typography dominates roughly one third of the frame (top or bottom third) and the SUBJECT is the unmistakable starring male lead of the composition.',
       "Add a small elegant hand-written script 'Swipe →' cue at the bottom-center.",
-      'If the hook promises offers or benefits, render up to four rounded gold-outlined pill badges with tiny icons stacked along the left edge (e.g. 100% FREE, Beginner to Advanced).',
+      'Do NOT invent extra promotional copy — no offer badges, no benefit pills, no side labels like "100% FREE" or "Beginner to Advanced". Only render the exact text the creator provided.',
     ].join(' '),
     content: [
       'This is a CONTENT slide (middle of an Instagram carousel) — same art direction, but readability comes first.',
@@ -62,7 +65,7 @@ export const GRANDEUR_V1: CarouselStyle = {
     ].join(' '),
   },
   negativeCues:
-    "Avoid: using the movie poster actor's face or any celebrity face for the hero, blending two faces together, distorted or altered facial identity, extra fingers, misspelled / duplicated / garbled words, placeholder text, unreadable glyphs, watermarks, third-party brand logos, low-resolution textures, flat lighting.",
+    'Avoid: inventing extra promotional text or offer badges (no "100% FREE", "Beginner to Advanced", benefit pills, side labels, or any wording not provided by the creator); removing secondary characters / co-stars / props that belong in the poster composition; oversized pasted-on head; mismatched face lighting vs body lighting; skin-tone mismatch between face and hands/neck; copying the subject photo\'s casual hairstyle, beard, expression or outfit instead of the poster\'s styling; using the movie poster actor\'s face for the male lead; blending two faces; distorted facial identity; extra fingers; misspelled / duplicated / garbled words; placeholder text; unreadable glyphs; watermarks; third-party brand logos; low-resolution textures; flat lighting on the face.',
 };
 
 const STYLE_REGISTRY: Record<string, CarouselStyle> = {

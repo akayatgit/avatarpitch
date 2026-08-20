@@ -168,16 +168,20 @@ export function composeSlidePrompt(options: {
   // Face identity is the #1 failure mode — casting must be the first and
   // loudest instruction. Index-only references ("image 1") are not reliable,
   // so the subject is also identified by appearance and by photo type.
+  // Secondary characters from the poster MUST stay — only the male lead face swaps.
   const subjectIdentifier = subjectDescription
     ? `the SUBJECT is the person in the plain real-life photo — ${subjectDescription}`
     : 'the SUBJECT is the person in the plain real-life photo (an ordinary casual snapshot with NO title lettering, NO graphics, NO poster design)';
 
   const castingParts: string[] = [
-    `CASTING — the most important rule of this task. Among the attached reference images, ${subjectIdentifier}. That photo is attached as ${subjectRefLabel}. The ONLY person allowed on this poster is that SUBJECT. Recreate the SUBJECT's face with photographic identity accuracy — same bone structure, eyes, nose, lips, skin tone, hairline and beard shape. This is a real person; do not beautify, blend or replace their face.`,
+    `CASTING — the most important rule of this task. Among the attached reference images, ${subjectIdentifier}. That photo is attached as ${subjectRefLabel}.`,
+    `FACE IDENTITY ONLY: transplant the SUBJECT's facial identity onto the starring male lead — same bone structure, eyes, nose, lips and who he is. Skin tone must be fair and match the body (face, neck and hands are one continuous tone).`,
+    `STYLING FROM THE POSTER / THEME — NOT from the subject photo: the hero's hairstyle, beard shape, expression, attitude, wardrobe and pose follow the movie poster reference and the creator's theme. Do NOT copy the subject photo's casual haircut, casual beard, flat expression or casual outfit.`,
+    `BLEND: head size is naturally proportionate to the body — never oversized or pasted-on. Seamlessly integrate the neck and jaw with the collar. Face lighting MUST match the ambient scene (same golden-hour direction, highlights and shadows as the body, clothes and landscape). A flat front-lit face on a dramatically lit body is a failure.`,
   ];
   if (movieCount > 0) {
     castingParts.push(
-      `The MOVIE POSTER reference (${movieRefLabel} — the stylized image with big title lettering and poster graphics) is a STYLE reference ONLY. The actor in that poster must NOT appear in the output — completely REPLACE him with the SUBJECT described above, as if the SUBJECT starred in that movie. Take only the poster's wardrobe styling, color palette, environment, era, pose energy, typography treatment and mood. Any resemblance to the poster's original actor is a failure.`
+      `COMPOSITION LOCK (${movieRefLabel} — the stylized poster with big title lettering): fully replicate the poster's scene, layout, supporting characters (keep the woman / co-star and every other figure), props, landscape and atmosphere. The original male lead actor's face is REPLACED by the SUBJECT — that is the only face change. Do NOT delete secondary characters to "make room" for the subject.`
     );
   }
   const castingBlock = castingParts.join('\n');
@@ -186,13 +190,13 @@ export function composeSlidePrompt(options: {
   let refIndex = 1;
   for (let i = 0; i < subjectCount; i += 1) {
     manifest.push(
-      `Reference image ${refIndex}: the SUBJECT${subjectDescription ? ` (${subjectDescription})` : ''} — the one and only face allowed in the hero role.`
+      `Reference image ${refIndex}: the SUBJECT${subjectDescription ? ` (${subjectDescription})` : ''} — FACE IDENTITY ONLY for the starring male lead (not hair, beard style, expression or outfit).`
     );
     refIndex += 1;
   }
   for (let i = 0; i < movieCount; i += 1) {
     manifest.push(
-      `Reference image ${refIndex}: MOVIE POSTER — style only; its actor is replaced by the SUBJECT.`
+      `Reference image ${refIndex}: MOVIE / STYLE POSTER — replicate its full composition (including secondary characters and props); replace only the starring male lead's face with the SUBJECT; take hairstyle, beard, expression, attitude, wardrobe, palette and mood from this poster.`
     );
     refIndex += 1;
   }
@@ -218,14 +222,21 @@ export function composeSlidePrompt(options: {
   const themeParts: string[] = [];
   if (movieCount > 0) {
     themeParts.push(
-      `Restyle the entire composition in the visual language of the MOVIE POSTER reference (${movieRefLabel}): its wardrobe, palette, environment, era and mood — with the SUBJECT's face from ${subjectRefLabel} in the starring role.`
+      `Replicate the MOVIE / STYLE POSTER composition (${movieRefLabel}) in full — scene, supporting characters, props, landscape — with the SUBJECT's face as the starring male lead. Hairstyle, beard, expression and attitude come from this poster and the theme, not from the subject photo.`
     );
   }
   if (slide.themeNote.trim()) {
     themeParts.push(`Theme direction from the creator: ${slide.themeNote.trim()}`);
   }
 
-  const finalIdentityCheck = `FINAL CHECK before you render: compare the hero's face against the SUBJECT photo${subjectDescription ? ` (${subjectDescription})` : ''}. It must be the SAME person — not the movie poster actor, not a lookalike, not a blend. If it is not the SUBJECT, the image is wrong.`;
+  const finalIdentityCheck = [
+    `FINAL CHECK before you render:`,
+    `1) Hero face = SUBJECT${subjectDescription ? ` (${subjectDescription})` : ''} — same person, not the poster actor.`,
+    `2) Supporting characters from the poster are still present (do not delete the woman / co-star).`,
+    `3) Head is proportionate and lighting/skin tone on the face matches the body and ambient golden-hour light.`,
+    `4) Hairstyle, beard, expression and attitude match the poster/theme — not the casual subject photo.`,
+    `If any check fails, the image is wrong.`,
+  ].join(' ');
 
   const prompt = [
     castingBlock,
