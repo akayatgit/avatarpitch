@@ -3,6 +3,7 @@ import { createTemplate } from '../actions';
 import TemplatesPageClient from './TemplatesPageClient';
 import NetworkError from '@/components/NetworkError';
 import { isSupabaseNetworkError } from '@/lib/networkError';
+import { ensureContentTypesSeeded } from '@/lib/seedData';
 
 // Disable caching to ensure fresh data from database
 export const dynamic = 'force-dynamic';
@@ -20,7 +21,16 @@ export default async function TemplatesPage() {
       return <NetworkError message="Unable to load content types. Please check your internet connection." />;
     }
     if (!error && data) {
-      templates = data;
+      if (data.length === 0) {
+        await ensureContentTypesSeeded();
+        const { data: seeded } = await supabaseAdmin
+          .from('content_types')
+          .select('id, name, description, category, version, created_at, cover_image_url')
+          .order('created_at', { ascending: false });
+        templates = seeded ?? [];
+      } else {
+        templates = data;
+      }
     }
   } catch (error: any) {
     if (isSupabaseNetworkError(error)) {
